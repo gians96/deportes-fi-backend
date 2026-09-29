@@ -89,9 +89,9 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 - [x] T027 [P] Actualizar `docs/api-contract.md` (admin + integración)
 - [x] T028 [P] Actualizar `docs/data-model.md`, `docs/README.md`, `README.md` y `AGENTS.md`
-- [ ] T029 Puertas de calidad: `bun run build`, `bun run test`, ESLint sin errores nuevos
+- [x] T029 Puertas de calidad: `bun run build`, `bun run test`, ESLint sin errores nuevos
 - [x] T030 Prueba de humo local (`quickstart.md`): emitir, 4 endpoints, aislamiento A/B, revocación → 401
-- [ ] T031 Marcar la spec como implementada
+- [x] T031 Marcar la spec como implementada
 
 ---
 
@@ -105,3 +105,19 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 MVP = Phase 2 + US1 + US2 (el congreso ya puede integrarse). Luego US3 (ciclo de vida) y US4
 (producción).
+
+## Evidencia de verificación (2026-09-29)
+
+- `bun run build`: sin errores.
+- `bun run test`: 6 suites, 79 pruebas en verde (token/hash/pepper, guard, servicio admin,
+  agregación, aislamiento A/B y HTTP extremo a extremo con fake de Prisma).
+- ESLint: 0 errores nuevos (se mantienen 102 errores de formato previos en archivos no
+  tocados por este feature).
+- Prueba de humo local (MariaDB Docker, servidor en :3030): 57/57 verificaciones, incluidas
+  aislamiento A/B, `?eventId=` ignorado, 401 exacto, expiración real, revocación y hash en BD.
+  En modo producción sin `API_TOKEN_PEPPER`: API en pie, tokens → 503 y error en el log.
+- Runbook validado en una BD temporal local: opción A (solo se aplica la nueva migración sobre
+  una base con deriva; el esquema resultante coincide con `schema.prisma`), baseline de la deriva
+  con `migrate resolve --applied` y opción B (`db push` + `migrate resolve`).
+- Preexistente y ajeno al feature: `bun run test:e2e` falla (el scaffold espera `GET /` →
+  "Hello World!").

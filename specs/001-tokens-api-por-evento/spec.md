@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Aprobada (lista para implementar)
+**Status**: Implementada (2026-09-29)
 
 **Input**: "Tokens de integración por evento para que el backend del congreso (CIISIC) consulte,
 servidor a servidor, el evento deportivo, su resumen de inscripciones y pagos, y los listados
