@@ -181,6 +181,13 @@ describe('Tokens por evento e integraciones (HTTP)', () => {
       await post(EVENT_A_ID, { name: '   ' }).expect(400);
       await post(EVENT_A_ID, { name: 'x'.repeat(101) }).expect(400);
       await post(EVENT_A_ID, { name: 'x', expiresAt: 'mañana' }).expect(400);
+      // Fecha imposible: no debe desplazarse silenciosamente al 2 de marzo.
+      await post(EVENT_A_ID, {
+        name: 'x',
+        expiresAt: '2099-02-30T10:00:00.000Z',
+      }).expect(400);
+      await post(EVENT_A_ID, { name: 'x', extra: 'campo' }).expect(201);
+      prisma.data.tokens.length = 0;
       const past = await post(EVENT_A_ID, {
         name: 'x',
         expiresAt: '2020-01-01T00:00:00.000Z',

@@ -69,6 +69,9 @@ export class EventTokensService {
     await this.ensureEvent(eventId);
 
     const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+    if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+      throw new BadRequestException('La fecha de expiración no es válida');
+    }
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException('La fecha de expiración debe ser futura');
     }

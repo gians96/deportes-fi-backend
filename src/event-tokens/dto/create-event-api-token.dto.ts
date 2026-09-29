@@ -18,10 +18,12 @@ export class CreateEventApiTokenDto {
   })
   name!: string;
 
+  // strict: rechaza fechas imposibles (p. ej. 2026-02-30) en lugar de
+  // desplazarlas silenciosamente al mes siguiente.
   @IsOptional()
   @IsDateString(
-    {},
-    { message: 'La fecha de expiración debe tener formato ISO 8601' },
+    { strict: true },
+    { message: 'La fecha de expiración debe ser una fecha ISO 8601 válida' },
   )
   expiresAt?: string;
 }
