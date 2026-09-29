@@ -16,6 +16,7 @@ import { StandingsModule } from './standings/standings.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
 import { AdminModule } from './admin/admin.module';
 import { EventTokensModule } from './event-tokens/event-tokens.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { AppRateLimitGuard } from './common/guards/app-rate-limit.guard';
 
 @Module({
@@ -38,6 +39,7 @@ import { AppRateLimitGuard } from './common/guards/app-rate-limit.guard';
     SchedulingModule,
     AdminModule,
     EventTokensModule,
+    IntegrationsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AppRateLimitGuard }],
 })

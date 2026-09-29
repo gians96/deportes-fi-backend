@@ -57,14 +57,14 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 **Independent Test**: token del evento A → datos solo de A, números correctos.
 
-- [ ] T014 [US2] Guard `src/common/guards/event-token.guard.ts` y decorador `src/common/decorators/current-event-token.decorator.ts`
-- [ ] T015 [P] [US2] Pruebas del guard en `src/common/guards/event-token.guard.spec.ts` (válido, ausente, mal formado, desconocido, revocado, expirado, `lastUsedAt` sin bloquear)
-- [ ] T016 [P] [US2] DTO de consulta `src/integrations/dto/integration-list-query.dto.ts` (`status`, `page`, `pageSize`)
-- [ ] T017 [US2] `IntegrationsService` (evento, resumen, pagos, inscripciones) en `src/integrations/integrations.service.ts`
-- [ ] T018 [US2] `IntegrationsController` + `IntegrationsModule` y registro en `src/app.module.ts`
-- [ ] T019 [P] [US2] Fake de Prisma en memoria `test/fakes/in-memory-prisma.ts` (exige filtro por `eventId`)
-- [ ] T020 [US2] Pruebas `src/integrations/integrations.service.spec.ts` (números del resumen, paginación, sin datos sensibles, aislamiento A/B)
-- [ ] T021 [US2] Pruebas HTTP `src/integrations/integrations.http.spec.ts` (401 exacto, `?eventId=` ignorado, 400 de validación, sin JWT)
+- [x] T014 [US2] Guard `src/common/guards/event-token.guard.ts` y decorador `src/common/decorators/current-event-token.decorator.ts`
+- [x] T015 [P] [US2] Pruebas del guard en `src/common/guards/event-token.guard.spec.ts` (válido, ausente, mal formado, desconocido, revocado, expirado, `lastUsedAt` sin bloquear)
+- [x] T016 [P] [US2] DTO de consulta `src/integrations/dto/integration-list-query.dto.ts` (`status`, `page`, `pageSize`)
+- [x] T017 [US2] `IntegrationsService` (evento, resumen, pagos, inscripciones) en `src/integrations/integrations.service.ts`
+- [x] T018 [US2] `IntegrationsController` + `IntegrationsModule` y registro en `src/app.module.ts`
+- [x] T019 [P] [US2] Fake de Prisma en memoria `test/fakes/in-memory-prisma.ts` (exige filtro por `eventId`)
+- [x] T020 [US2] Pruebas `src/integrations/integrations.service.spec.ts` (números del resumen, paginación, sin datos sensibles, aislamiento A/B)
+- [x] T021 [US2] Pruebas HTTP `src/integrations/integrations.http.spec.ts` (401 exacto, `?eventId=` ignorado, 400 de validación, sin JWT)
 
 **Checkpoint**: US1 + US2 funcionales.
 
@@ -73,7 +73,7 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 ## Phase 5: User Story 3 - Revocar y expirar (P2)
 
 - [x] T022 [US3] `EventTokensService.revoke` + `DELETE /events/:eventId/api-tokens/:id` (idempotente, 404 si es de otro evento)
-- [ ] T023 [US3] Pruebas de revocación en `event-tokens.service.spec.ts` y de revocado/expirado en las pruebas HTTP
+- [x] T023 [US3] Pruebas de revocación en `event-tokens.service.spec.ts` y de revocado/expirado en las pruebas HTTP
 
 ---
 
