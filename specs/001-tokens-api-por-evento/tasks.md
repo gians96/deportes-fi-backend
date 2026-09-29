@@ -24,9 +24,9 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 ## Phase 2: Foundational (bloquea todas las historias)
 
-- [ ] T003 Agregar `EventApiToken` y la relación `SportEvent.apiTokens` en `prisma/schema.prisma`
-- [ ] T004 Crear `prisma/migrations/20260929150000_event_api_tokens/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel y revisada a mano: solo tabla, FK e índices)
-- [ ] T005 Verificar en la BD *shadow* local que migraciones + nueva migración vs. esquema solo dejan la deriva previa
+- [x] T003 Agregar `EventApiToken` y la relación `SportEvent.apiTokens` en `prisma/schema.prisma`
+- [x] T004 Crear `prisma/migrations/20260929150000_event_api_tokens/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel y revisada a mano: solo tabla, FK e índices)
+- [x] T005 Verificar en la BD *shadow* local que migraciones + nueva migración vs. esquema solo dejan la deriva previa
 - [ ] T006 [P] Implementar `src/event-tokens/api-token.util.ts` (generar, hashear, validar formato, resolver pepper) con pruebas en `src/event-tokens/api-token.util.spec.ts`
 - [ ] T007 Implementar `src/event-tokens/api-token-hasher.service.ts` (pepper desde `ConfigService`, 503 si no está configurado)
 - [ ] T008 [P] Documentar `API_TOKEN_PEPPER` en `.env.example`

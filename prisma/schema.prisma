@@ -128,9 +128,31 @@ model SportEvent {
   isOpen      Boolean @default(true)
 
   disciplines Discipline[]
+  apiTokens   EventApiToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Token de integración de un sistema externo (p. ej. el congreso) para un solo
+// evento. Solo se guarda el hash HMAC-SHA256 (con API_TOKEN_PEPPER); el valor en
+// claro se muestra una única vez al crearlo.
+model EventApiToken {
+  id          Int        @id @default(autoincrement())
+  eventId     Int
+  event       SportEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name        String
+  tokenPrefix String     @unique
+  tokenHash   String     @unique
+  createdById Int?
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([eventId])
 }
 
 model Discipline {
