@@ -8,6 +8,7 @@ API REST del **Sistema de Deportes de la Facultad de Ingeniería (UNDC)**, const
 - [api-contract.md](./api-contract.md) — Contrato de la API: endpoints, auth, request/response.
 - [data-model.md](./data-model.md) — Modelo de datos (Prisma) y enums.
 - [deployment.md](./deployment.md) — Despliegue (Docker / Dokploy), variables de entorno.
+- [runbook-tokens-evento.md](./runbook-tokens-evento.md) — Migración de tokens por evento en producción (deriva, baseline, pepper, rollback).
 
 ## Flujo actual
 
@@ -22,6 +23,9 @@ API REST del **Sistema de Deportes de la Facultad de Ingeniería (UNDC)**, const
   queda como compatibilidad.
 - Toda la API tiene rate limit global por IP para proteger el uso de la
   plataforma.
+- Tokens de integración por evento (`/events/:eventId/api-tokens`, admin) dan
+  acceso de solo lectura a `/integrations/event/*` con `X-Api-Key` (Contrato 2
+  del ecosistema CIISIC); el evento sale solo del token.
 
 ## Stack
 

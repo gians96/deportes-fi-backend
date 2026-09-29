@@ -22,6 +22,7 @@ cp .env.example .env
 | `PORT` | Puerto del servidor (default `3001`) |
 | `CORS_ORIGIN` | Orígenes permitidos, separados por coma |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | Configuración de JWT |
+| `API_TOKEN_PEPPER` | Pepper del hash de los tokens de integración por evento (obligatorio en producción) |
 | `GOOGLE_CLIENT_ID` | Client ID de Google (igual que el frontend) |
 | `ACADEMIC_API_URL` | Endpoint del padrón SIVIRENO (estudiantes) |
 | `DECOLECTA_API_URL` / `DECOLECTA_TOKEN` | Endpoint y token RENIEC vía Decolecta (usuarios/participantes `OTHER` por DNI) |
@@ -67,6 +68,8 @@ node dist/main.js
 - `GET /users`, `PATCH /users/:id/role`
 - `GET /standings/:disciplineId`, `GET /results/mine`
 - `GET /admin/dashboard`
+- `POST|GET /events/:eventId/api-tokens`, `DELETE /events/:eventId/api-tokens/:id` — tokens de integración (admin)
+- `GET /integrations/event`, `/summary`, `/payments`, `/registrations` — integración con `X-Api-Key` (ver `docs/api-contract.md`)
 
 ## Autenticación
 

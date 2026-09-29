@@ -27,6 +27,7 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 | `CORS_ORIGIN`          | Orígenes permitidos (coma) | `https://deportes-fi.undc.edu.pe` |
 | `JWT_SECRET`           | Clave de firma JWT | *(secreto fuerte)* |
 | `JWT_EXPIRES_IN`       | Expiración del token | `7d` |
+| `API_TOKEN_PEPPER`     | Pepper del HMAC-SHA256 de los tokens de integración por evento. **Obligatorio en producción** (sin él, crear/usar tokens responde 503). Cambiarlo invalida todos los tokens | *(secreto ≥ 32 caracteres aleatorios)* |
 | `GOOGLE_CLIENT_ID`     | Client ID de Google (mismo que el frontend) | |
 | `ACADEMIC_API_URL`     | Endpoint del padrón SIVIRENO (validación de estudiantes) | *(ver `.env.example`)* |
 | `DECOLECTA_API_URL`    | Endpoint RENIEC vía Decolecta (validación por DNI) | `https://api.decolecta.com/v1/reniec/dni` |
@@ -53,11 +54,16 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
    bunx prisma migrate deploy
    ```
    (o `prisma db push` si no se usan migraciones versionadas).
+   Hay deriva conocida entre `prisma/migrations` y `schema.prisma`; antes de
+   aplicar la migración de tokens por evento sigue
+   [`runbook-tokens-evento.md`](./runbook-tokens-evento.md).
 
 ## Checklist de producción
 
 - [ ] `DATABASE_URL` apunta a la MariaDB correcta y el usuario tiene privilegios.
 - [ ] `JWT_SECRET` único y fuerte (no el de ejemplo).
+- [ ] `API_TOKEN_PEPPER` definido (aleatorio, ≥ 32 caracteres) y guardado en el
+      gestor de secretos; no rotarlo sin reemitir los tokens de integración.
 - [ ] `CORS_ORIGIN` con el dominio real del frontend.
 - [ ] `GOOGLE_CLIENT_ID` coincide con el del frontend y el dominio está
       autorizado en Google Cloud Console (orígenes JS).

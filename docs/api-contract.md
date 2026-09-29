@@ -11,6 +11,8 @@ Notación de la columna *Auth*:
 - `auth` — cualquier usuario autenticado.
 - `admin` — solo `OWNER_SYSTEM` o `ADMIN_SYSTEM`.
 - `fixture` — `OWNER_SYSTEM`, `ADMIN_SYSTEM` o `REFEREE`.
+- `token de evento` — header `X-Api-Key: dfi_<token>` (servidor a servidor, sin
+  JWT). Ver [Integración por evento](#integración-por-evento-contrato-2).
 
 ---
 
@@ -121,6 +123,38 @@ Decolecta. Devuelve `AcademicPerson` con `studentCode: null`.
   "isOpen": true
 }
 ```
+
+### Tokens de integración del evento
+
+Credenciales para que un sistema externo (backend del congreso) lea los datos de
+**un solo** evento. Solo se guarda el hash HMAC-SHA256 (con `API_TOKEN_PEPPER`);
+el token en claro se devuelve **una única vez** al crearlo.
+
+| Método | Ruta                                  | Auth  | Notas |
+| ------ | ------------------------------------- | ----- | ----- |
+| POST   | `/events/:eventId/api-tokens`         | admin | `{ name, expiresAt? }` → `201` con `token` (única vez), `Cache-Control: no-store` |
+| GET    | `/events/:eventId/api-tokens`         | admin | Lista sin `token` ni hash, orden `createdAt` desc |
+| DELETE | `/events/:eventId/api-tokens/:id`     | admin | Revoca (fija `revokedAt`, conserva el registro; idempotente) |
+
+```json
+// POST /events/3/api-tokens
+{ "name": "Congreso CIISIC 2026", "expiresAt": "2026-12-31T23:59:59.000Z" }
+// response 201
+{ "id": 5, "name": "Congreso CIISIC 2026", "tokenPrefix": "dfi_Q2x9aB7c",
+  "expiresAt": "2026-12-31T23:59:59.000Z", "createdAt": "2026-09-29T15:00:00.000Z",
+  "token": "dfi_<43 caracteres base64url>" }
+
+// GET /events/3/api-tokens y DELETE → EventApiTokenView (lista / objeto)
+{ "id": 5, "eventId": 3, "name": "Congreso CIISIC 2026", "tokenPrefix": "dfi_Q2x9aB7c",
+  "createdById": 1, "lastUsedAt": null, "expiresAt": null, "revokedAt": null,
+  "createdAt": "2026-09-29T15:00:00.000Z", "status": "ACTIVE" }
+```
+
+- `name`: 1–100 caracteres (se recorta). `expiresAt`: ISO 8601 opcional y futura
+  (`400 "La fecha de expiración debe ser futura"`).
+- `status` ∈ `ACTIVE | REVOKED | EXPIRED` (calculado; `REVOKED` prevalece).
+- Errores: `404 "Evento no encontrado"`, `404 "Token no encontrado"` (no existe o
+  es de otro evento), `503` si falta `API_TOKEN_PEPPER` en producción.
 
 ---
 
@@ -302,6 +336,88 @@ Reglas del algoritmo (coloreo de grafos por franjas):
 
 ---
 
+## Integración por evento (Contrato 2)
+
+Implementa el **Contrato 2** de `backend-ciisic/docs/arquitectura-ecosistema.md`.
+Consumidor: backend del congreso (servidor a servidor). Respuestas en **JSON plano**
+(sin envoltorio).
+
+| Método | Ruta                                   | Auth            | Notas |
+| ------ | -------------------------------------- | --------------- | ----- |
+| GET    | `/integrations/event`                  | token de evento | Datos del evento |
+| GET    | `/integrations/event/summary`          | token de evento | Resumen de equipos, participantes y pagos |
+| GET    | `/integrations/event/payments`         | token de evento | `?status=VALIDATED\|PENDING\|REJECTED&page=1&pageSize=50` |
+| GET    | `/integrations/event/registrations`    | token de evento | `?status=PENDING\|APPROVED\|REJECTED\|CANCELLED&page=1&pageSize=50` |
+
+**Autenticación**: `X-Api-Key: dfi_<token>` (no usa `Authorization`). El evento
+se toma **exclusivamente del token**; parámetros como `?eventId=` se ignoran.
+Token ausente, mal formado, inexistente, revocado o expirado:
+
+```json
+{ "statusCode": 401, "message": "Token de integración inválido" }
+```
+
+Aplica el rate limit global por IP. Sin `API_TOKEN_PEPPER` en producción:
+`503 { "statusCode": 503, "message": "Los tokens de integración no están configurados en el servidor" }`.
+
+```json
+// GET /integrations/event
+{ "id": 3, "name": "Juegos Semana Sistémica 2026", "description": "<p>…</p>",
+  "startDate": "2026-10-19T00:00:00.000Z", "endDate": "2026-10-24T00:00:00.000Z", "isOpen": true }
+
+// GET /integrations/event/summary
+{
+  "event": { "id": 3, "name": "Juegos Semana Sistémica 2026", "startDate": "…", "endDate": "…" },
+  "currency": "PEN",
+  "teams": { "total": 40, "pending": 5, "approved": 32, "rejected": 2, "cancelled": 1 },
+  "participants": { "total": 310 },
+  "payments": {
+    "validated": { "count": 30, "amount": 1500 },
+    "pending": { "count": 4, "amount": 200 },
+    "rejected": { "count": 1, "amount": 50 }
+  },
+  "byDiscipline": [
+    { "disciplineId": 7, "name": "Fútbol 7 varones", "participantType": "STUDENT", "isPaid": true, "cost": 50,
+      "teams": { "total": 12, "approved": 10, "pending": 2 }, "validatedAmount": 500, "pendingAmount": 100 }
+  ],
+  "byParticipantType": [
+    { "participantType": "STUDENT", "teams": 35, "validatedAmount": 1300, "pendingAmount": 200 },
+    { "participantType": "OTHER", "teams": 5, "validatedAmount": 200, "pendingAmount": 0 }
+  ],
+  "generatedAt": "2026-10-20T15:04:05.000Z"
+}
+
+// GET /integrations/event/payments
+{ "data": [ { "id": 11, "amount": 50, "status": "VALIDATED", "operationNumber": "123456",
+  "uploadedAt": "…", "updatedAt": "…", "teamName": "Los Bits",
+  "disciplineName": "Fútbol 7 varones", "participantType": "STUDENT" } ],
+  "meta": { "page": 1, "pageSize": 50, "total": 35 } }
+
+// GET /integrations/event/registrations
+{ "data": [ { "id": 21, "name": "Los Bits", "status": "APPROVED",
+  "disciplineName": "Fútbol 7 varones", "participantType": "STUDENT",
+  "participantsCount": 9, "createdAt": "…" } ],
+  "meta": { "page": 1, "pageSize": 50, "total": 40 } }
+```
+
+Reglas:
+- "Recaudado" (`validated`) = suma de `Voucher.amount` con `status = VALIDATED`.
+  Los pagos se clasifican solo por el estado del voucher (un voucher `PENDING` de
+  un equipo rechazado sigue contando como pendiente).
+- Montos en soles como número con hasta 2 decimales (se suman con `Decimal`).
+- `teams.total`, `participants.total` y `byParticipantType[].teams` cuentan
+  equipos/integrantes en cualquier estado. `byDiscipline` incluye todas las
+  disciplinas del evento (orden por nombre) con `teams` = `total`/`approved`/`pending`;
+  `byParticipantType` siempre trae `STUDENT` y `OTHER`.
+- Orden: pagos por `uploadedAt` desc; inscripciones por `createdAt` desc (desempate
+  por `id`). Página fuera de rango → `data: []` con el `total` real.
+- `status` inválido, `page` < 1 o `pageSize` fuera de 1–100 → `400` con el formato
+  estándar de validación de Nest.
+- Ninguna respuesta incluye correos, DNI, códigos de estudiante, teléfonos,
+  nombres de integrantes ni URLs de vouchers.
+
+---
+
 ## Integraciones externas
 
 El backend consume dos servicios externos para validar la identidad de los
@@ -341,8 +457,8 @@ integrantes. Las URLs y credenciales se configuran por variables de entorno
 | Código | Significado |
 | ------ | ----------- |
 | 400    | Validación de DTO o regla de negocio (mensaje en `message`) |
-| 401    | Token ausente/ inválido o usuario inhabilitado |
+| 401    | Token ausente/ inválido o usuario inhabilitado; en integraciones, `{ "statusCode": 401, "message": "Token de integración inválido" }` |
 | 403    | Rol insuficiente para la operación |
 | 429    | Rate limit global excedido |
 | 404    | Recurso no encontrado |
-| 503    | Servicio externo no disponible (p. ej. `DECOLECTA_TOKEN` ausente) |
+| 503    | Servicio externo no disponible (p. ej. `DECOLECTA_TOKEN` ausente) o `API_TOKEN_PEPPER` ausente en producción (tokens de integración) |

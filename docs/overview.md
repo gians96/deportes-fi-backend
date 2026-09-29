@@ -52,6 +52,9 @@ y seguridad en el servidor (no confiar en el cliente).
   inhabilitar (`isActive`, validado en `JwtStrategy`).
 - Filtros de disciplinas por `eventId` / `facultyId` / `schoolId`.
 - Rate limit global por IP configurable desde variables de entorno.
+- **Tokens de integración por evento** (hash HMAC con pepper, revocables y con
+  expiración) y endpoints de solo lectura `/integrations/event/*` para el backend
+  del congreso (Contrato 2 del ecosistema CIISIC).
 
 ### Pendiente / futuro
 - Módulo de **partidos** (`Match`) y avance de brackets para formato

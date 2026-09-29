@@ -25,6 +25,7 @@ Faculty 1───* SportEvent           ProfessionalSchool 1───* SportEve
 Faculty 1───* User                 ProfessionalSchool 1───* User (opcional)
 
 SportEvent 1───* Discipline
+SportEvent 1───* EventApiToken      (tokens de integración; cascada al borrar)
 Discipline 1───* Team
 Discipline 1───* Match
 Discipline 1───* Standing
@@ -64,6 +65,14 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   posiciones (puntos). Endpoints de avance/resultados pendientes (ver roadmap).
   La implementacion actual genera round-robin para `POINTS`, eliminacion simple
   para `ELIMINATION`, recalcula `Standing` y avanza ganadores de llave.
+- **EventApiToken**: token de integración de un sistema externo para **un solo**
+  `SportEvent` (`eventId`, cascada al borrar el evento). Guarda `name`,
+  `tokenPrefix` (único, primeros 12 caracteres visibles `dfi_xxxxxxxx`),
+  `tokenHash` (único, HMAC-SHA256 hex con `API_TOKEN_PEPPER`; el token en claro
+  nunca se persiste), `createdById` (sin FK, como `Voucher.validatedById`),
+  `lastUsedAt`, `expiresAt` y `revokedAt` (revocar conserva el registro). Estado
+  derivado: `REVOKED` si `revokedAt`, `EXPIRED` si `expiresAt <= ahora`, si no
+  `ACTIVE`. Detalle en `specs/001-tokens-api-por-evento/data-model.md`.
 - Borrados en cascada: `Discipline → Team → Participant/Voucher`, etc., vía
   `onDelete: Cascade`.
 
@@ -76,3 +85,10 @@ bunx prisma db push                       # sincronizar sin migración (rápido)
 bunx prisma generate                      # regenerar cliente
 bun run prisma:seed                       # datos iniciales
 ```
+
+> **Deriva conocida**: `User.isActive`, `Discipline.participantType`,
+> `Discipline.matchDurationMinutes` y `Discipline.courtsCount` existen en
+> `schema.prisma` (y en producción, aplicadas con `db push`) pero no en ninguna
+> migración. Por eso `migrate dev` propondrá agregarlas. Cómo hacer el baseline
+> sin tocar producción: [`runbook-tokens-evento.md`](./runbook-tokens-evento.md).
+> La migración `20260929150000_event_api_tokens` solo crea `EventApiToken`.

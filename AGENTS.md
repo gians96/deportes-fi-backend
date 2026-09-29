@@ -24,8 +24,8 @@ Ingeniería UNDC. Documentación detallada en [`docs/`](./docs/README.md).
 
 - Prefijo global **`/api/v1`** (`main.ts`).
 - Módulos en `src/<dominio>/`: `auth`, `users`, `faculties`, `events`,
-  `disciplines`, `registrations`, `vouchers`, `standings`, `admin`, `academic`,
-  `prisma`, `common`.
+  `disciplines`, `registrations`, `vouchers`, `standings`, `scheduling`, `admin`,
+  `academic`, `event-tokens`, `integrations`, `prisma`, `common`.
 - Patrón por módulo: `*.controller.ts`, `*.service.ts`, `*.module.ts`, `dto/`.
 - **Prisma** es la capa de datos (`PrismaService`). Esquema en
   `prisma/schema.prisma`.
@@ -34,6 +34,11 @@ Ingeniería UNDC. Documentación detallada en [`docs/`](./docs/README.md).
 - **Autorización**: `JwtAuthGuard` + `RolesGuard` + `@Roles(...)`. Las reglas
   finas (p. ej. "admin solo gestiona STUDENT") viven en el *service* usando el
   `actor`.
+- **Integraciones servidor a servidor**: `EventTokenGuard` (`X-Api-Key`,
+  independiente del JWT) + `@CurrentEventToken()`. El `eventId` sale **solo** del
+  token; todo query de `src/integrations` debe filtrar por él. Los tokens se
+  guardan como HMAC-SHA256 con `API_TOKEN_PEPPER` (ver
+  `specs/001-tokens-api-por-evento/`).
 
 ## Convenciones de código
 

@@ -79,18 +79,18 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 ## Phase 6: User Story 4 - Despliegue seguro (P3)
 
-- [ ] T024 [US4] Runbook `docs/runbook-tokens-evento.md` (opciones A/B, baseline de deriva, pepper, rollback)
-- [ ] T025 [US4] Simular las opciones A y B del runbook en una BD local temporal
-- [ ] T026 [P] [US4] `docs/deployment.md`: variable `API_TOKEN_PEPPER` y checklist
+- [x] T024 [US4] Runbook `docs/runbook-tokens-evento.md` (opciones A/B, baseline de deriva, pepper, rollback)
+- [x] T025 [US4] Simular las opciones A y B del runbook en una BD local temporal
+- [x] T026 [P] [US4] `docs/deployment.md`: variable `API_TOKEN_PEPPER` y checklist
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T027 [P] Actualizar `docs/api-contract.md` (admin + integración)
-- [ ] T028 [P] Actualizar `docs/data-model.md`, `docs/README.md`, `README.md` y `AGENTS.md`
+- [x] T027 [P] Actualizar `docs/api-contract.md` (admin + integración)
+- [x] T028 [P] Actualizar `docs/data-model.md`, `docs/README.md`, `README.md` y `AGENTS.md`
 - [ ] T029 Puertas de calidad: `bun run build`, `bun run test`, ESLint sin errores nuevos
-- [ ] T030 Prueba de humo local (`quickstart.md`): emitir, 4 endpoints, aislamiento A/B, revocación → 401
+- [x] T030 Prueba de humo local (`quickstart.md`): emitir, 4 endpoints, aislamiento A/B, revocación → 401
 - [ ] T031 Marcar la spec como implementada
 
 ---
