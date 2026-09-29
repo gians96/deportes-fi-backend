@@ -27,9 +27,9 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 - [x] T003 Agregar `EventApiToken` y la relación `SportEvent.apiTokens` en `prisma/schema.prisma`
 - [x] T004 Crear `prisma/migrations/20260929150000_event_api_tokens/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel y revisada a mano: solo tabla, FK e índices)
 - [x] T005 Verificar en la BD *shadow* local que migraciones + nueva migración vs. esquema solo dejan la deriva previa
-- [ ] T006 [P] Implementar `src/event-tokens/api-token.util.ts` (generar, hashear, validar formato, resolver pepper) con pruebas en `src/event-tokens/api-token.util.spec.ts`
-- [ ] T007 Implementar `src/event-tokens/api-token-hasher.service.ts` (pepper desde `ConfigService`, 503 si no está configurado)
-- [ ] T008 [P] Documentar `API_TOKEN_PEPPER` en `.env.example`
+- [x] T006 [P] Implementar `src/event-tokens/api-token.util.ts` (generar, hashear, validar formato, resolver pepper) con pruebas en `src/event-tokens/api-token.util.spec.ts`
+- [x] T007 Implementar `src/event-tokens/api-token-hasher.service.ts` (pepper desde `ConfigService`, 503 si no está configurado)
+- [x] T008 [P] Documentar `API_TOKEN_PEPPER` en `.env.example`
 
 **Checkpoint**: esquema, migración y criptografía listos.
 
@@ -41,11 +41,11 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 **Independent Test**: `POST` y `GET /events/:eventId/api-tokens`; en la base solo queda el hash.
 
-- [ ] T009 [P] [US1] DTO `src/event-tokens/dto/create-event-api-token.dto.ts` (nombre 1–100, `expiresAt` ISO opcional)
-- [ ] T010 [US1] `EventTokensService.create/list` con estado derivado en `src/event-tokens/event-tokens.service.ts`
-- [ ] T011 [US1] `EventTokensController` (`POST`/`GET`) con `JwtAuthGuard`, `RolesGuard`, `@Roles(OWNER_SYSTEM, ADMIN_SYSTEM)` en `src/event-tokens/event-tokens.controller.ts`
-- [ ] T012 [US1] `EventTokensModule` (exporta `ApiTokenHasher`) y registro en `src/app.module.ts`
-- [ ] T013 [US1] Pruebas en `src/event-tokens/event-tokens.service.spec.ts` (solo hash persistido, token una vez, 404 evento, expiración pasada → 400)
+- [x] T009 [P] [US1] DTO `src/event-tokens/dto/create-event-api-token.dto.ts` (nombre 1–100, `expiresAt` ISO opcional)
+- [x] T010 [US1] `EventTokensService.create/list` con estado derivado en `src/event-tokens/event-tokens.service.ts`
+- [x] T011 [US1] `EventTokensController` (`POST`/`GET`) con `JwtAuthGuard`, `RolesGuard`, `@Roles(OWNER_SYSTEM, ADMIN_SYSTEM)` en `src/event-tokens/event-tokens.controller.ts`
+- [x] T012 [US1] `EventTokensModule` (exporta `ApiTokenHasher`) y registro en `src/app.module.ts`
+- [x] T013 [US1] Pruebas en `src/event-tokens/event-tokens.service.spec.ts` (solo hash persistido, token una vez, 404 evento, expiración pasada → 400)
 
 **Checkpoint**: US1 funcional y probada.
 
@@ -72,7 +72,7 @@ description: "Lista de tareas de implementación — Tokens API por evento"
 
 ## Phase 5: User Story 3 - Revocar y expirar (P2)
 
-- [ ] T022 [US3] `EventTokensService.revoke` + `DELETE /events/:eventId/api-tokens/:id` (idempotente, 404 si es de otro evento)
+- [x] T022 [US3] `EventTokensService.revoke` + `DELETE /events/:eventId/api-tokens/:id` (idempotente, 404 si es de otro evento)
 - [ ] T023 [US3] Pruebas de revocación en `event-tokens.service.spec.ts` y de revocado/expirado en las pruebas HTTP
 
 ---
