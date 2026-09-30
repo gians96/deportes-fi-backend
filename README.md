@@ -20,7 +20,6 @@ cp .env.example .env
 | --- | --- |
 | `DATABASE_URL` | URL completa de MariaDB (`mysql://user:pass@host:3306/db`) |
 | `PORT` | Puerto del servidor (default `3001`) |
-| `CORS_ORIGIN` | Orígenes permitidos, separados por coma |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | Configuración de JWT |
 | `API_TOKEN_PEPPER` | Pepper del hash de los tokens de integración por evento (obligatorio en producción) |
 | `GOOGLE_CLIENT_ID` | Client ID de Google (igual que el frontend) |
@@ -114,7 +113,6 @@ docker run -p 3001:3001 \
   -e DATABASE_URL="mysql://user:pass@host:3306/deportes_fi" \
   -e JWT_SECRET=xxxx \
   -e GOOGLE_CLIENT_ID=xxxx \
-  -e CORS_ORIGIN=https://tu-frontend \
   -v deportes_uploads:/app/uploads \
   deportes-fi-backend
 ```

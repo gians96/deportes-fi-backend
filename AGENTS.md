@@ -112,7 +112,8 @@ evento deportivo para la "Semana Sistémica".
 
 - Nunca commitear `.env` (ya está en `.gitignore`). Usa `.env.example` como
   plantilla.
-- No loguear secretos ni el JWT. CORS controlado por `CORS_ORIGIN`.
+- No loguear secretos ni el JWT. CORS abierto (`*`, sin cookies): la seguridad es el JWT o el
+  token del evento (`X-Api-Key`), no el origen.
 - Mantener activo el rate limit global (`APP_RATE_LIMIT_WINDOW_MS` /
   `APP_RATE_LIMIT_MAX_REQUESTS`) para proteger la plataforma.
 - Validar tipo/tamaño de los archivos de voucher (Multer).

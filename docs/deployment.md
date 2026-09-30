@@ -24,7 +24,6 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 | ---------------------- | ----------- | ------- |
 | `DATABASE_URL`         | URL completa MariaDB externa | `mysql://user:pass@host:3306/deportes_fi` |
 | `PORT`                 | Puerto HTTP | `3001` |
-| `CORS_ORIGIN`          | Orígenes permitidos (coma) | `https://deportes-fi.undc.edu.pe` |
 | `JWT_SECRET`           | Clave de firma JWT | *(secreto fuerte)* |
 | `JWT_EXPIRES_IN`       | Expiración del token | `7d` |
 | `API_TOKEN_PEPPER`     | Pepper del HMAC-SHA256 de los tokens de integración por evento. **Obligatorio en producción** (sin él, crear/usar tokens responde 503). Cambiarlo invalida todos los tokens | *(secreto ≥ 32 caracteres aleatorios)* |
@@ -64,7 +63,7 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 - [ ] `JWT_SECRET` único y fuerte (no el de ejemplo).
 - [ ] `API_TOKEN_PEPPER` definido (aleatorio, ≥ 32 caracteres) y guardado en el
       gestor de secretos; no rotarlo sin reemitir los tokens de integración.
-- [ ] `CORS_ORIGIN` con el dominio real del frontend.
+- [ ] CORS no se configura: la API acepta cualquier origen (la protegen el JWT y los tokens).
 - [ ] `GOOGLE_CLIENT_ID` coincide con el del frontend y el dominio está
       autorizado en Google Cloud Console (orígenes JS).
 - [ ] Volumen persistente para `uploads/`.

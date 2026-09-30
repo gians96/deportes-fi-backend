@@ -15,9 +15,12 @@ async function bootstrap() {
   app.use(compression());
   app.use(cookieParser());
 
+  // API abierta a cualquier origen: la protegen el JWT (`Authorization`) y los tokens de evento
+  // (`X-Api-Key`), no el origen. Sin cookies (credentials: false), así `*` es válido.
   app.enableCors({
-    origin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(','),
-    credentials: true,
+    origin: '*',
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key'],
+    maxAge: 600,
   });
 
   app.useGlobalPipes(
