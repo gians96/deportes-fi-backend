@@ -23,6 +23,7 @@ export const groupDetailInclude = {
       name: true,
       slot: true,
       status: true,
+      rejectionReason: true,
       voucherId: true,
       disciplineId: true,
     },
@@ -67,6 +68,8 @@ export interface GroupDetail {
       name: string;
       slot: number | null;
       status: RegistrationStatus;
+      /** Motivo con el que se rechazó el equipo (solo cuando está `REJECTED`). */
+      rejectionReason: string | null;
       voucherId: number | null;
     }[];
   }[];
@@ -133,6 +136,7 @@ export function toGroupDetail(
       name: team.name,
       slot: team.slot,
       status: team.status,
+      rejectionReason: team.rejectionReason ?? null,
       voucherId: team.voucherId,
     });
     teamsByDiscipline.set(team.disciplineId, list);

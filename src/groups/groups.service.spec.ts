@@ -521,9 +521,17 @@ describe('GroupsService (lecturas)', () => {
         name: 'Los Bits',
         slot: 1,
         status: 'PENDING',
+        rejectionReason: null,
         voucherId: a.baseVoucher?.id,
       },
-      { id: 2, name: 'Los Bits B', slot: 2, status: 'PENDING', voucherId: 500 },
+      {
+        id: 2,
+        name: 'Los Bits B',
+        slot: 2,
+        status: 'PENDING',
+        rejectionReason: null,
+        voucherId: 500,
+      },
     ]);
     expect(detail.extraVouchers).toEqual([
       expect.objectContaining({
