@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { RegistrationStatus, VoucherStatus } from '@prisma/client';
 
 export const DEFAULT_PAGE_SIZE = 50;
@@ -32,8 +32,16 @@ export class IntegrationPaymentsQueryDto extends IntegrationPaginationQueryDto {
 
 export class IntegrationRegistrationsQueryDto extends IntegrationPaginationQueryDto {
   @IsOptional()
-  @IsEnum(RegistrationStatus, {
-    message: 'status debe ser uno de: PENDING, APPROVED, REJECTED, CANCELLED',
-  })
+  @IsIn(
+    [
+      RegistrationStatus.PENDING,
+      RegistrationStatus.APPROVED,
+      RegistrationStatus.REJECTED,
+      RegistrationStatus.CANCELLED,
+    ],
+    {
+      message: 'status debe ser uno de: PENDING, APPROVED, REJECTED, CANCELLED',
+    },
+  )
   status?: RegistrationStatus;
 }

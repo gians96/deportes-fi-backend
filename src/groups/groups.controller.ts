@@ -69,6 +69,7 @@ export class GroupsController {
   @Roles(...PAYMENT_ROLES)
   @Get()
   findAll(
+    @CurrentUser() user: RequestUser,
     @Query('eventId') eventId?: string,
     @Query('schoolId') schoolId?: string,
     @Query('cycle') cycle?: string,
@@ -79,12 +80,15 @@ export class GroupsController {
         'status debe ser PENDING, VALIDATED o REJECTED',
       );
     }
-    return this.groups.findAll({
-      eventId: positiveInt(eventId, 'eventId'),
-      schoolId: schoolId ? positiveInt(schoolId, 'schoolId') : undefined,
-      cycle: cycle || undefined,
-      status: status ? (status as VoucherStatus) : undefined,
-    });
+    return this.groups.findAll(
+      {
+        eventId: positiveInt(eventId, 'eventId'),
+        schoolId: schoolId ? positiveInt(schoolId, 'schoolId') : undefined,
+        cycle: cycle || undefined,
+        status: status ? (status as VoucherStatus) : undefined,
+      },
+      user,
+    );
   }
 
   @Get(':id')

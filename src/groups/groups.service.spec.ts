@@ -192,7 +192,7 @@ describe('GroupsService.create', () => {
   it('con salones inscritos no se puede abrir el ciclo completo', async () => {
     const { prisma, service } = build();
     await service.create(student, sectionDto({ section: 'A1' }), VOUCHER);
-    await service.create(student, sectionDto({ section: 'B1' }), VOUCHER);
+    await service.create(admin, sectionDto({ section: 'B1' }), VOUCHER);
 
     await expect(
       service.create(otherStudent, cycleDto(), VOUCHER),
@@ -212,9 +212,9 @@ describe('GroupsService.create', () => {
     expect(cycle.scope).toBe('CYCLE');
 
     // El mismo salón sigue ocupado: se recupera reemplazando el voucher (US5).
-    await expect(
-      service.create(otherStudent, sectionDto(), VOUCHER),
-    ).rejects.toThrow(/ciclo completo|ya está inscrito/);
+    await expect(service.create(admin, sectionDto(), VOUCHER)).rejects.toThrow(
+      /ciclo completo|ya está inscrito/,
+    );
   });
 
   it('un equipo activo mantiene el grupo activo aunque su voucher esté rechazado', () => {
@@ -425,9 +425,10 @@ describe('GroupsService (lecturas)', () => {
       sectionDto({ section: 'B1' }),
       VOUCHER,
     );
+    // Un segundo salón del mismo delegado solo lo puede registrar el staff a su nombre.
     const c = await service.create(
-      student,
-      sectionDto({ cycle: 'VI', section: 'A1' }),
+      admin,
+      sectionDto({ cycle: 'VI', section: 'A1', delegateId: student.id }),
       VOUCHER,
     );
     return { prisma, service, a, b, c };
@@ -532,5 +533,154 @@ describe('GroupsService (lecturas)', () => {
         teamIds: [2],
       }),
     ]);
+  });
+});
+
+describe('GroupsService: un salón o ciclo por estudiante y evento (spec 006)', () => {
+  it('un estudiante no puede inscribir un segundo salón en el mismo evento', async () => {
+    const { prisma, service } = build();
+    await service.create(student, sectionDto({ section: 'A1' }), VOUCHER);
+
+    await expect(
+      service.create(student, sectionDto({ section: 'B1' }), VOUCHER),
+    ).rejects.toThrow(ConflictException);
+    await expect(
+      service.create(student, cycleDto({ cycle: 'VI' }), VOUCHER),
+    ).rejects.toThrow(/Ya inscribiste tu salón o ciclo/);
+    expect(prisma.data.groups).toHaveLength(1);
+  });
+
+  it('otro estudiante sí puede inscribir su propio salón', async () => {
+    const { prisma, service } = build();
+    await service.create(student, sectionDto({ section: 'A1' }), VOUCHER);
+    await service.create(otherStudent, sectionDto({ section: 'B1' }), VOUCHER);
+    expect(prisma.data.groups).toHaveLength(2);
+  });
+
+  it('si el pago general fue rechazado y no quedan equipos vigentes puede intentar de nuevo', async () => {
+    const { prisma, service } = build();
+    const first = await service.create(student, sectionDto(), VOUCHER);
+    const voucher = prisma.data.vouchers.find(
+      (v) => v.id === first.baseVoucher?.id,
+    );
+    if (voucher) voucher.status = VoucherStatus.REJECTED;
+
+    await expect(
+      service.create(student, sectionDto({ section: 'B1' }), VOUCHER),
+    ).resolves.toMatchObject({ section: 'B1' });
+  });
+
+  it('el staff puede registrar varios salones, incluso a nombre del mismo delegado', async () => {
+    const { prisma, service } = build();
+    await service.create(admin, sectionDto({ section: 'A1' }), VOUCHER);
+    await service.create(admin, sectionDto({ section: 'B1' }), VOUCHER);
+    await service.create(
+      admin,
+      sectionDto({ section: 'C1', delegateId: student.id }),
+      VOUCHER,
+    );
+    await service.create(
+      admin,
+      sectionDto({ section: 'D1', delegateId: student.id }),
+      VOUCHER,
+    );
+    expect(prisma.data.groups).toHaveLength(4);
+  });
+});
+
+describe('GroupsService: borradores (spec 006)', () => {
+  const treasurer: RequestUser = {
+    id: 3,
+    email: 'tesorero@undc.edu.pe',
+    fullName: 'Tesorero',
+    role: Role.TREASURER,
+  };
+
+  async function withDrafts() {
+    const { prisma, service } = build();
+    const group = await service.create(student, sectionDto(), VOUCHER);
+    prisma.data.vouchers.push({
+      id: 600,
+      kind: VoucherKind.EXTRA,
+      groupId: group.id,
+      teamId: null,
+      amount: new Prisma.Decimal('20'),
+      operationNumber: null,
+      imageUrl: '/uploads/vouchers/extra.png',
+      status: VoucherStatus.PENDING,
+      rejectionReason: null,
+      validatedById: null,
+    });
+    prisma.data.teams.push(
+      {
+        id: 1,
+        groupId: group.id,
+        disciplineId: 12,
+        name: 'Enviado',
+        slot: 1,
+        status: RegistrationStatus.PENDING,
+        voucherId: group.baseVoucher?.id ?? null,
+      },
+      {
+        id: 2,
+        groupId: group.id,
+        disciplineId: 12,
+        name: 'Borrador adicional',
+        slot: 2,
+        status: RegistrationStatus.DRAFT,
+        voucherId: 600,
+      },
+      {
+        id: 3,
+        groupId: group.id,
+        disciplineId: 13,
+        name: 'Otro borrador',
+        slot: 1,
+        status: RegistrationStatus.DRAFT,
+        voucherId: group.baseVoucher?.id ?? null,
+      },
+    );
+    return { service, group };
+  }
+
+  it('el delegado y el staff ven los borradores y su cantidad', async () => {
+    const { service, group } = await withDrafts();
+    for (const viewer of [student, admin]) {
+      const detail = await service.findOne(viewer, group.id);
+      expect(detail.draftCount).toBe(2);
+      const names = detail.disciplines.flatMap((d) =>
+        d.teams.map((t) => t.name),
+      );
+      expect(names).toEqual(
+        expect.arrayContaining([
+          'Enviado',
+          'Borrador adicional',
+          'Otro borrador',
+        ]),
+      );
+      expect(detail.extraVouchers).toHaveLength(1);
+    }
+  });
+
+  it('el tesorero no ve borradores ni un comprobante adicional que solo cubre borradores', async () => {
+    const { service, group } = await withDrafts();
+    const detail = await service.findOne(treasurer, group.id);
+    const names = detail.disciplines.flatMap((d) => d.teams.map((t) => t.name));
+    expect(names).toEqual(['Enviado']);
+    expect(detail.draftCount).toBe(0);
+    expect(detail.extraVouchers).toEqual([]);
+
+    const [listed] = await service.findAll({ eventId: 1 }, treasurer);
+    expect(listed.draftCount).toBe(0);
+    expect(listed.disciplines.flatMap((d) => d.teams)).toHaveLength(1);
+  });
+
+  it('un grupo con voucher rechazado y solo borradores deja de ser activo', () => {
+    expect(
+      isActiveGroup({
+        baseVoucher: { status: VoucherStatus.REJECTED },
+        teams: [{ status: RegistrationStatus.DRAFT }],
+      }),
+    ).toBe(false);
   });
 });

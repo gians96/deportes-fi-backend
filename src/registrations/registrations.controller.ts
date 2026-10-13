@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -18,15 +19,14 @@ import { RegistrationsService } from './registrations.service';
 import {
   CreateRegistrationDto,
   ParticipantDto,
+  UpdateRegistrationDto,
 } from './dto/create-registration.dto';
 import { RejectDto } from './dto/reject.dto';
 import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import {
-  CurrentUser,
-} from '../common/decorators/current-user.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
 import { PAYMENT_ROLES, isStaffRole } from '../common/roles';
 
@@ -47,6 +47,7 @@ export class RegistrationsController {
   @Roles(...PAYMENT_ROLES)
   @Get()
   findAll(
+    @CurrentUser() user: RequestUser,
     @Query('status') status?: RegistrationStatus,
     @Query('eventId') eventId?: string,
     @Query('facultyId') facultyId?: string,
@@ -55,15 +56,18 @@ export class RegistrationsController {
     @Query('isPaid') isPaid?: string,
     @Query('participantType') participantType?: ParticipantType,
   ) {
-    return this.registrations.findAll({
-      status,
-      eventId: eventId ? Number(eventId) : undefined,
-      facultyId: facultyId ? Number(facultyId) : undefined,
-      schoolId: schoolId ? Number(schoolId) : undefined,
-      disciplineId: disciplineId ? Number(disciplineId) : undefined,
-      isPaid: isPaid === undefined ? undefined : isPaid === 'true',
-      participantType,
-    });
+    return this.registrations.findAll(
+      {
+        status,
+        eventId: eventId ? Number(eventId) : undefined,
+        facultyId: facultyId ? Number(facultyId) : undefined,
+        schoolId: schoolId ? Number(schoolId) : undefined,
+        disciplineId: disciplineId ? Number(disciplineId) : undefined,
+        isPaid: isPaid === undefined ? undefined : isPaid === 'true',
+        participantType,
+      },
+      user.role,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -96,6 +100,7 @@ export class RegistrationsController {
       operationNumber: body.operationNumber,
       groupId: optionalId(body.groupId, 'groupId'),
       extraVoucherId: optionalId(body.extraVoucherId, 'extraVoucherId'),
+      draft: body.draft === 'true' || body.draft === '1',
       participants,
     };
 
@@ -106,6 +111,37 @@ export class RegistrationsController {
 
     const voucherPath = file ? `/uploads/vouchers/${file.filename}` : undefined;
     return this.registrations.create(user.id, dto, voucherPath, delegateId);
+  }
+
+  /** Edita un equipo: el delegado solo sus borradores; owner y administrador cualquiera (lo decide el servicio). */
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  update(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateRegistrationDto,
+  ) {
+    return this.registrations.update(user, id, dto);
+  }
+
+  /** «Enviar»: pasa un borrador a PENDIENTE (con las reglas completas). */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/submit')
+  submit(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.registrations.submit(user, id);
+  }
+
+  /** Quita un borrador y libera su cupo. */
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.registrations.remove(user, id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

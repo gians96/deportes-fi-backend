@@ -325,11 +325,13 @@ export class VouchersService {
     voucher: VoucherToValidate,
     validatedById: number,
   ) {
-    if (voucher.teams.length === 0) {
+    if (
+      voucher.teams.every((team) => team.status === RegistrationStatus.DRAFT)
+    ) {
       throw new BadRequestException(
         voucher.kind === VoucherKind.BASE
-          ? 'El salón aún no registra equipos'
-          : 'El comprobante adicional aún no cubre ningún equipo',
+          ? 'El salón aún no envió ningún equipo'
+          : 'El comprobante adicional aún no cubre ningún equipo enviado',
       );
     }
 

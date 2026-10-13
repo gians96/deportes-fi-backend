@@ -105,7 +105,10 @@ export class IntegrationsService {
           orderBy: [{ name: 'asc' }, { id: 'asc' }],
         }),
         this.prisma.team.findMany({
-          where: { discipline: { eventId } },
+          where: {
+            discipline: { eventId },
+            status: { not: RegistrationStatus.DRAFT },
+          },
           select: {
             status: true,
             disciplineId: true,
@@ -121,6 +124,7 @@ export class IntegrationsService {
             status: true,
             team: { select: { id: true, disciplineId: true } },
             teams: {
+              where: { status: { not: RegistrationStatus.DRAFT } },
               select: { id: true, disciplineId: true },
               orderBy: { id: 'asc' },
             },
@@ -131,7 +135,10 @@ export class IntegrationsService {
       throw new NotFoundException('Evento no encontrado');
     }
 
-    const teamsByStatus: Record<RegistrationStatus, number> = {
+    const teamsByStatus: Record<
+      Exclude<RegistrationStatus, typeof RegistrationStatus.DRAFT>,
+      number
+    > = {
       PENDING: 0,
       APPROVED: 0,
       REJECTED: 0,
@@ -169,6 +176,8 @@ export class IntegrationsService {
 
     let participantsTotal = 0;
     for (const team of teams) {
+      // Los borradores se excluyen en la consulta; esto solo estrecha el tipo.
+      if (team.status === RegistrationStatus.DRAFT) continue;
       teamsByStatus[team.status] += 1;
       participantsTotal += team._count.participants;
 
@@ -360,7 +369,7 @@ export class IntegrationsService {
     const { page, pageSize, skip } = resolvePagination(query);
     const where: Prisma.TeamWhereInput = {
       discipline: { eventId },
-      ...(query.status ? { status: query.status } : {}),
+      status: query.status ?? { not: RegistrationStatus.DRAFT },
     };
 
     const [teams, total] = await this.prisma.$transaction([

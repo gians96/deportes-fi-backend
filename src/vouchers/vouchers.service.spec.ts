@@ -241,9 +241,32 @@ describe('VouchersService.validate', () => {
       prisma.data.teams.splice(0, prisma.data.teams.length);
 
       await expect(service.validate(BASE, ADMIN_ID)).rejects.toThrow(
-        'El salón aún no registra equipos',
+        'El salón aún no envió ningún equipo',
       );
       expect(voucher(BASE).status).toBe(VoucherStatus.PENDING);
+    });
+
+    it('un pago base que solo cubre borradores no se puede validar (spec 006)', async () => {
+      const { prisma, service, voucher } = build();
+      for (const team of prisma.data.teams) {
+        if (team.voucherId === BASE) team.status = RegistrationStatus.DRAFT;
+      }
+
+      await expect(service.validate(BASE, ADMIN_ID)).rejects.toThrow(
+        'El salón aún no envió ningún equipo',
+      );
+      expect(voucher(BASE).status).toBe(VoucherStatus.PENDING);
+    });
+
+    it('al validar solo se aprueban los equipos enviados; el borrador queda como está', async () => {
+      const { prisma, service, status } = build();
+      prisma.data.teams.find((t) => t.id === 2)!.status =
+        RegistrationStatus.DRAFT;
+
+      const result = await service.validate(BASE, ADMIN_ID);
+
+      expect(result).toMatchObject({ approvedTeamIds: [1, 3] });
+      expect(status(2)).toBe(RegistrationStatus.DRAFT);
     });
 
     it('validar de nuevo aprueba los equipos que se sumaron después', async () => {
@@ -277,6 +300,15 @@ describe('VouchersService.validate', () => {
       prisma.data.teams.find((t) => t.id === 4)!.voucherId = null;
       await expect(service.validate(EXTRA, ADMIN_ID)).rejects.toThrow(
         'aún no cubre ningún equipo',
+      );
+    });
+
+    it('rechaza validar un comprobante adicional cuyo equipo sigue en borrador', async () => {
+      const { prisma, service } = build();
+      prisma.data.teams.find((t) => t.id === 4)!.status =
+        RegistrationStatus.DRAFT;
+      await expect(service.validate(EXTRA, ADMIN_ID)).rejects.toThrow(
+        'aún no cubre ningún equipo enviado',
       );
     });
   });

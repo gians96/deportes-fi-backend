@@ -14,7 +14,7 @@ export const groupDetailInclude = {
   baseVoucher: true,
   vouchers: {
     where: { kind: VoucherKind.EXTRA },
-    include: { teams: { select: { id: true } } },
+    include: { teams: { select: { id: true, status: true } } },
     orderBy: { id: 'asc' },
   },
   teams: {
@@ -71,6 +71,8 @@ export interface GroupDetail {
     }[];
   }[];
   extraVouchers: (VoucherView & { teamIds: number[] })[];
+  /** Equipos guardados como borrador y todavía no enviados (0 para el tesorero, que no los ve). */
+  draftCount: number;
 }
 
 function toVoucherView(voucher: {
@@ -115,12 +117,16 @@ export function isActiveGroup(group: {
 export function toGroupDetail(
   group: GroupWithDetail,
   disciplines: DisciplineRef[],
+  options: { hideDrafts?: boolean } = {},
 ): GroupDetail {
+  const hideDrafts = options.hideDrafts === true;
+  const visible = (team: { status: RegistrationStatus }) =>
+    !hideDrafts || team.status !== RegistrationStatus.DRAFT;
   const teamsByDiscipline = new Map<
     number,
     GroupDetail['disciplines'][number]['teams']
   >();
-  for (const team of group.teams) {
+  for (const team of group.teams.filter(visible)) {
     const list = teamsByDiscipline.get(team.disciplineId) ?? [];
     list.push({
       id: team.id,
@@ -152,9 +158,16 @@ export function toGroupDetail(
       name: discipline.name,
       teams: teamsByDiscipline.get(discipline.id) ?? [],
     })),
-    extraVouchers: group.vouchers.map((voucher) => ({
-      ...toVoucherView(voucher),
-      teamIds: voucher.teams.map((team) => team.id),
-    })),
+    // El tesorero no ve un comprobante adicional que solo cubre borradores.
+    extraVouchers: group.vouchers
+      .filter((voucher) => !hideDrafts || voucher.teams.some(visible))
+      .map((voucher) => ({
+        ...toVoucherView(voucher),
+        teamIds: voucher.teams.filter(visible).map((team) => team.id),
+      })),
+    draftCount: hideDrafts
+      ? 0
+      : group.teams.filter((team) => team.status === RegistrationStatus.DRAFT)
+          .length,
   };
 }

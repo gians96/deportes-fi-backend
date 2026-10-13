@@ -217,29 +217,31 @@ export class GroupsPrisma {
     },
   };
 
-  readonly discipline = {
-    findUnique: ({ where }: WhereArgs) => {
-      for (const event of this.data.events) {
-        const discipline = event.disciplines.find((d) => d.id === where.id);
-        if (discipline) {
-          return Promise.resolve({
-            ...discipline,
-            _count: {
-              teams: this.data.teams.filter(
-                (t) => t.disciplineId === discipline.id,
-              ).length,
-            },
-            event: {
-              id: event.id,
-              pricingMode: event.pricingMode,
-              isOpen: event.isOpen,
-              pricing: event.pricing,
-            },
-          });
-        }
+  /** Disciplina con su evento y el conteo de equipos, como la devuelve `discipline.findUnique`. */
+  private disciplineWithEvent(id: number) {
+    for (const event of this.data.events) {
+      const discipline = event.disciplines.find((d) => d.id === id);
+      if (discipline) {
+        return {
+          ...discipline,
+          _count: {
+            teams: this.data.teams.filter((t) => t.disciplineId === id).length,
+          },
+          event: {
+            id: event.id,
+            pricingMode: event.pricingMode,
+            isOpen: event.isOpen,
+            pricing: event.pricing,
+          },
+        };
       }
-      return Promise.resolve(null);
-    },
+    }
+    return null;
+  }
+
+  readonly discipline = {
+    findUnique: ({ where }: WhereArgs) =>
+      Promise.resolve(this.disciplineWithEvent(where.id as number)),
     findMany: ({ where }: WhereArgs) => {
       const disciplines = this.data.events
         .filter((e) => e.id === where.eventId)
@@ -389,17 +391,36 @@ export class GroupsPrisma {
       if (!team) return Promise.resolve(null);
       const voucher =
         this.data.vouchers.find((v) => v.id === team.voucherId) ?? null;
-      const discipline =
-        this.data.events
-          .flatMap((e) => e.disciplines)
-          .find((d) => d.id === team.disciplineId) ?? null;
+      const group = this.data.groups.find((g) => g.id === team.groupId);
       return Promise.resolve({
         ...team,
         participants: (team.participants ?? []).map((p) => ({ ...p })),
         voucher: voucher ? { ...voucher } : null,
-        discipline: discipline ? { ...discipline } : null,
+        group: group
+          ? { id: group.id, delegateId: group.delegateId, scope: group.scope }
+          : null,
+        discipline: this.disciplineWithEvent(team.disciplineId),
       });
     },
+    delete: ({ where }: WhereArgs) => {
+      const index = this.data.teams.findIndex((t) => t.id === where.id);
+      if (index < 0) return Promise.reject(new Error('Team not found'));
+      const [removed] = this.data.teams.splice(index, 1);
+      return Promise.resolve({ ...removed });
+    },
+    count: ({
+      where,
+    }: {
+      where: { voucherId?: number; slot?: { not: null } };
+    }) =>
+      Promise.resolve(
+        this.data.teams.filter(
+          (t) =>
+            (where.voucherId === undefined ||
+              t.voucherId === where.voucherId) &&
+            (where.slot === undefined || t.slot !== null),
+        ).length,
+      ),
     updateMany: ({
       where,
       data,
@@ -428,6 +449,23 @@ export class GroupsPrisma {
   };
 
   readonly participant = {
+    deleteMany: ({ where }: { where: { teamId: number } }) => {
+      const team = this.data.teams.find((t) => t.id === where.teamId);
+      const count = team?.participants?.length ?? 0;
+      if (team) team.participants = [];
+      return Promise.resolve({ count });
+    },
+    createMany: ({
+      data,
+    }: {
+      data: Array<FakeParticipantRow & { teamId: number }>;
+    }) => {
+      for (const { teamId, ...row } of data) {
+        const team = this.data.teams.find((t) => t.id === teamId);
+        if (team) (team.participants ??= []).push({ ...row });
+      }
+      return Promise.resolve({ count: data.length });
+    },
     findMany: ({ where }: { where: { teamId: { in: number[] } } }) =>
       Promise.resolve(
         this.data.teams
@@ -501,6 +539,16 @@ export class GroupsPrisma {
           )
           .map((v) => this.voucherListRow(v)),
       ),
+    delete: ({ where }: WhereArgs) => {
+      const index = this.data.vouchers.findIndex((v) => v.id === where.id);
+      if (index < 0) return Promise.reject(new Error('Voucher not found'));
+      const [removed] = this.data.vouchers.splice(index, 1);
+      // Como `onDelete: SetNull` de Team.voucherId.
+      for (const team of this.data.teams) {
+        if (team.voucherId === removed.id) team.voucherId = null;
+      }
+      return Promise.resolve({ ...removed });
+    },
     update: ({
       where,
       data,
@@ -742,7 +790,7 @@ export class GroupsPrisma {
           ...v,
           teams: this.data.teams
             .filter((t) => t.voucherId === v.id)
-            .map((t) => ({ id: t.id })),
+            .map((t) => ({ id: t.id, status: t.status })),
         })),
       teams: this.data.teams
         .filter((t) => t.groupId === group.id)

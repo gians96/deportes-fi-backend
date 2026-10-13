@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  RegistrationStatus,
-  VoucherStatus,
-} from '@prisma/client';
+import { RegistrationStatus, VoucherStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -18,11 +15,14 @@ export class AdminService {
       byStatus,
     ] = await Promise.all([
       this.prisma.voucher.count({ where: { status: VoucherStatus.PENDING } }),
-      this.prisma.team.count(),
+      this.prisma.team.count({
+        where: { status: { not: RegistrationStatus.DRAFT } },
+      }),
       this.prisma.participant.count(),
       this.prisma.sportEvent.count({ where: { isOpen: true } }),
       this.prisma.team.groupBy({
         by: ['status'],
+        where: { status: { not: RegistrationStatus.DRAFT } },
         _count: { _all: true },
       }),
     ]);
@@ -38,6 +38,7 @@ export class AdminService {
       APPROVED: 'Aprobados',
       REJECTED: 'Rechazados',
       CANCELLED: 'Cancelados',
+      DRAFT: 'Borradores',
     };
 
     const countMap = new Map<RegistrationStatus, number>();

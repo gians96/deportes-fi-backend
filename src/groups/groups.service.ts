@@ -136,6 +136,22 @@ export class GroupsService {
     try {
       const groupId = await this.prisma.$transaction(
         async (tx) => {
+          // Un estudiante tiene un solo salón o ciclo activo por evento; el staff inscribe a nombre de otros.
+          if (!staff) {
+            const mine = await tx.classGroup.findMany({
+              where: { eventId: event.id, delegateId: actor.id },
+              select: {
+                baseVoucher: { select: { status: true } },
+                teams: { select: { status: true } },
+              },
+            });
+            if (mine.some(isActiveGroup)) {
+              throw new ConflictException(
+                'Ya inscribiste tu salón o ciclo en este evento. Agrega equipos adicionales desde cada disciplina; para inscribir otro salón pide ayuda a un administrador.',
+              );
+            }
+          }
+
           const siblings = await tx.classGroup.findMany({
             where: { eventId: event.id, schoolId: school.id, cycle },
             select: {
@@ -229,7 +245,10 @@ export class GroupsService {
     if (!PAYMENT_ROLES.includes(actor.role) && group.delegateId !== actor.id) {
       throw new ForbiddenException('No tienes acceso a este salón o ciclo');
     }
-    const [detail] = await this.detailMany([group]);
+    const [detail] = await this.detailMany(
+      [group],
+      actor.role === Role.TREASURER,
+    );
     return detail;
   }
 
@@ -242,7 +261,10 @@ export class GroupsService {
     return this.detailMany(groups);
   }
 
-  async findAll(query: GroupListQuery): Promise<GroupDetail[]> {
+  async findAll(
+    query: GroupListQuery,
+    actor?: RequestUser,
+  ): Promise<GroupDetail[]> {
     const where: Prisma.ClassGroupWhereInput = { eventId: query.eventId };
     if (query.schoolId) where.schoolId = query.schoolId;
     if (query.cycle) where.cycle = normalizeCycle(query.cycle);
@@ -252,7 +274,7 @@ export class GroupsService {
       include: groupDetailInclude,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
-    return this.detailMany(groups);
+    return this.detailMany(groups, actor?.role === Role.TREASURER);
   }
 
   private async findDetail(id: number): Promise<GroupDetail> {
@@ -267,13 +289,18 @@ export class GroupsService {
     return detail;
   }
 
-  private async detailMany(groups: GroupWithDetail[]): Promise<GroupDetail[]> {
+  private async detailMany(
+    groups: GroupWithDetail[],
+    hideDrafts = false,
+  ): Promise<GroupDetail[]> {
     const disciplinesByEvent = new Map<number, DisciplineRef[]>();
     for (const eventId of new Set(groups.map((g) => g.eventId))) {
       disciplinesByEvent.set(eventId, await this.studentDisciplines(eventId));
     }
     return groups.map((group) =>
-      toGroupDetail(group, disciplinesByEvent.get(group.eventId) ?? []),
+      toGroupDetail(group, disciplinesByEvent.get(group.eventId) ?? [], {
+        hideDrafts,
+      }),
     );
   }
 

@@ -21,11 +21,14 @@ import { prismaErrorCode } from '../common/prisma-errors';
 import { CYCLE_FULL_SECTION } from '../groups/group-normalize';
 import { extraFee } from '../groups/group-pricing';
 import type { PricingValues } from '../groups/group-pricing';
-import { assertGroupRoster } from '../groups/group-roster';
+import { assertDraftRoster, assertGroupRoster } from '../groups/group-roster';
+import { isStaffRole } from '../common/roles';
+import type { RequestUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateRegistrationDto,
   ParticipantDto,
+  UpdateRegistrationDto,
 } from './dto/create-registration.dto';
 
 const disciplineInclude = {
@@ -50,15 +53,18 @@ type TeamForApproval = Prisma.TeamGetPayload<{
 export class RegistrationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(filters?: {
-    status?: RegistrationStatus;
-    eventId?: number;
-    facultyId?: number;
-    schoolId?: number;
-    disciplineId?: number;
-    isPaid?: boolean;
-    participantType?: ParticipantType;
-  }) {
+  findAll(
+    filters?: {
+      status?: RegistrationStatus;
+      eventId?: number;
+      facultyId?: number;
+      schoolId?: number;
+      disciplineId?: number;
+      isPaid?: boolean;
+      participantType?: ParticipantType;
+    },
+    viewerRole?: Role,
+  ) {
     const disciplineWhere: Prisma.DisciplineWhereInput = {};
     if (filters?.eventId) disciplineWhere.eventId = filters.eventId;
     if (filters?.isPaid !== undefined) disciplineWhere.isPaid = filters.isPaid;
@@ -73,6 +79,13 @@ export class RegistrationsService {
 
     const where: Prisma.TeamWhereInput = {};
     if (filters?.status) where.status = filters.status;
+    // El tesorero no ve los borradores: el equipo todavía no se envió.
+    if (viewerRole === Role.TREASURER) {
+      where.status =
+        filters?.status === RegistrationStatus.DRAFT
+          ? { in: [] }
+          : (filters?.status ?? { not: RegistrationStatus.DRAFT });
+    }
     if (filters?.disciplineId) where.disciplineId = filters.disciplineId;
     if (Object.keys(disciplineWhere).length) where.discipline = disciplineWhere;
 
@@ -118,7 +131,13 @@ export class RegistrationsService {
   async findMine(userId: number) {
     return this.prisma.team.findMany({
       where: {
-        OR: [{ delegateId: userId }, { participants: { some: { userId } } }],
+        OR: [
+          { delegateId: userId },
+          {
+            participants: { some: { userId } },
+            status: { not: RegistrationStatus.DRAFT },
+          },
+        ],
       },
       include: {
         participants: true,
@@ -170,12 +189,16 @@ export class RegistrationsService {
     currentTeamCount: number,
     options: {
       checkCapacity?: boolean;
+      /** Por defecto sigue a `checkCapacity`; el delegado que edita no ocupa un cupo nuevo, pero sí respeta el plazo. */
+      checkDeadline?: boolean;
+      /** Borrador: no exige mínimo de jugadores, códigos, DNI ni ciclo/sección hasta enviarlo. */
+      draft?: boolean;
       cycle?: string | null;
       section?: string | null;
     } = { checkCapacity: true },
   ) {
     if (
-      options.checkCapacity !== false &&
+      (options.checkDeadline ?? options.checkCapacity !== false) &&
       new Date() > discipline.registrationDeadline
     ) {
       throw new BadRequestException(
@@ -199,6 +222,7 @@ export class RegistrationsService {
     );
 
     if (
+      !options.draft &&
       discipline.participantType === ParticipantType.STUDENT &&
       participants.some((p) => !p.studentCode)
     ) {
@@ -208,6 +232,7 @@ export class RegistrationsService {
     }
 
     if (
+      !options.draft &&
       discipline.participantType === ParticipantType.STUDENT &&
       (!options.cycle || !options.section)
     ) {
@@ -217,6 +242,7 @@ export class RegistrationsService {
     }
 
     if (
+      !options.draft &&
       discipline.participantType === ParticipantType.OTHER &&
       participants.some((p) => !p.dni)
     ) {
@@ -226,7 +252,7 @@ export class RegistrationsService {
     }
 
     if (
-      countedParticipants < discipline.minPlayers ||
+      (!options.draft && countedParticipants < discipline.minPlayers) ||
       countedParticipants > discipline.maxPlayers
     ) {
       throw new BadRequestException(
@@ -341,6 +367,12 @@ export class RegistrationsService {
         voucherPath,
         delegateId,
       });
+    }
+
+    if (dto.draft) {
+      throw new BadRequestException(
+        'Los borradores solo existen en eventos que cobran por salón o ciclo',
+      );
     }
 
     this.validateAgainstDiscipline(
@@ -512,13 +544,15 @@ export class RegistrationsService {
     const cycle = group.cycle;
     const section =
       group.scope === GroupScope.CYCLE ? CYCLE_FULL_SECTION : group.section;
+    const draft = dto.draft === true;
     this.validateAgainstDiscipline(
       discipline,
       dto.participants,
       discipline._count.teams,
-      { cycle, section },
+      { cycle, section, draft },
     );
-    assertGroupRoster(dto.participants);
+    if (draft) assertDraftRoster(dto.participants);
+    else assertGroupRoster(dto.participants);
 
     const teamDelegateId = isStaff
       ? (args.delegateId ?? group.delegateId)
@@ -560,7 +594,9 @@ export class RegistrationsService {
               cycle,
               section,
               phone: dto.phone,
-              status: RegistrationStatus.PENDING,
+              status: draft
+                ? RegistrationStatus.DRAFT
+                : RegistrationStatus.PENDING,
               groupId: group.id,
               slot,
               voucherId,
@@ -693,12 +729,212 @@ export class RegistrationsService {
     });
   }
 
+  /** Equipo con lo necesario para editarlo, enviarlo o quitarlo. */
+  private async loadManageable(id: number) {
+    const team = await this.prisma.team.findUnique({
+      where: { id },
+      include: {
+        participants: true,
+        group: { select: { id: true, delegateId: true, scope: true } },
+        voucher: { select: { id: true, kind: true, status: true } },
+        discipline: { include: disciplineInclude },
+      },
+    });
+    if (!team) throw new NotFoundException('Equipo no encontrado');
+    return team;
+  }
+
+  /**
+   * El staff gestiona cualquier equipo; el delegado (del equipo o de su salón) solo mientras es un
+   * borrador. El tesorero y el resto reciben 403.
+   */
+  private assertCanManage(
+    actor: RequestUser,
+    team: {
+      status: RegistrationStatus;
+      delegateId: number;
+      group: { delegateId: number } | null;
+    },
+  ) {
+    if (isStaffRole(actor.role)) return;
+    const owns =
+      team.delegateId === actor.id || team.group?.delegateId === actor.id;
+    if (!owns) {
+      throw new ForbiddenException('No puedes modificar este equipo');
+    }
+    if (team.status !== RegistrationStatus.DRAFT) {
+      throw new ForbiddenException(
+        'El equipo ya fue enviado: solo un administrador puede modificarlo',
+      );
+    }
+  }
+
+  private toParticipantDtos(
+    rows: Array<{
+      fullName: string;
+      studentCode: string | null;
+      dni: string | null;
+      gender: Gender;
+      isDelegate: boolean;
+      countsAsPlayer: boolean;
+      isCaptain: boolean;
+    }>,
+  ): ParticipantDto[] {
+    return rows.map((row) => ({
+      fullName: row.fullName,
+      studentCode: row.studentCode,
+      dni: row.dni,
+      gender: row.gender,
+      isDelegate: row.isDelegate,
+      countsAsPlayer: row.countsAsPlayer,
+      isCaptain: row.isCaptain,
+    }));
+  }
+
+  /**
+   * Edita nombre, celular y nómina de un equipo. El delegado solo edita sus borradores (antes del
+   * cierre y con el evento abierto); owner y administrador editan cualquier equipo no cancelado y se
+   * aplican las reglas completas: un equipo aprobado sigue aprobado si las cumple.
+   */
+  async update(actor: RequestUser, id: number, dto: UpdateRegistrationDto) {
+    const team = await this.loadManageable(id);
+    this.assertCanManage(actor, team);
+    if (team.status === RegistrationStatus.CANCELLED) {
+      throw new BadRequestException('Un equipo cancelado no se puede editar');
+    }
+    const staff = isStaffRole(actor.role);
+    if (!staff && !team.discipline.event.isOpen) {
+      throw new BadRequestException(
+        'El evento no está abierto a inscripciones',
+      );
+    }
+    const name = dto.teamName?.trim();
+    if (dto.teamName !== undefined && !name) {
+      throw new BadRequestException('El nombre del equipo es obligatorio');
+    }
+
+    const draft = team.status === RegistrationStatus.DRAFT;
+    const participants =
+      dto.participants ?? this.toParticipantDtos(team.participants);
+    this.validateAgainstDiscipline(team.discipline, participants, 0, {
+      checkCapacity: false,
+      checkDeadline: !staff,
+      draft,
+      cycle: team.cycle,
+      section: team.section,
+    });
+    if (team.groupId !== null) {
+      if (draft) assertDraftRoster(participants);
+      else assertGroupRoster(participants);
+    }
+
+    const replacement = dto.participants
+      ? await this.matchUsers(dto.participants)
+      : null;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.team.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(dto.phone !== undefined && { phone: dto.phone }),
+        },
+      });
+      if (dto.participants && replacement) {
+        await tx.participant.deleteMany({ where: { teamId: id } });
+        await tx.participant.createMany({
+          data: this.participantRows(
+            dto.participants,
+            replacement.byCode,
+            replacement.byDni,
+          ).map((row) => ({ ...row, teamId: id })),
+        });
+      }
+      return tx.team.findUnique({
+        where: { id },
+        include: { participants: true, voucher: true },
+      });
+    });
+  }
+
+  /** «Enviar»: el borrador pasa a PENDING con las reglas completas del equipo. */
+  async submit(actor: RequestUser, id: number) {
+    const team = await this.loadManageable(id);
+    this.assertCanManage(actor, team);
+    if (team.status !== RegistrationStatus.DRAFT) {
+      throw new BadRequestException('El equipo ya fue enviado');
+    }
+    const staff = isStaffRole(actor.role);
+    if (!staff && !team.discipline.event.isOpen) {
+      throw new BadRequestException(
+        'El evento no está abierto a inscripciones',
+      );
+    }
+    const participants = this.toParticipantDtos(team.participants);
+    this.validateAgainstDiscipline(team.discipline, participants, 0, {
+      checkCapacity: false,
+      checkDeadline: !staff,
+      cycle: team.cycle,
+      section: team.section,
+    });
+    assertGroupRoster(participants);
+    return this.prisma.team.update({
+      where: { id },
+      data: { status: RegistrationStatus.PENDING, rejectionReason: null },
+      include: { participants: true, voucher: true },
+    });
+  }
+
+  /**
+   * Quita un borrador y libera su cupo. Si era el último equipo de un comprobante adicional todavía
+   * pendiente, ese comprobante se elimina; si comparte comprobante, su monto se recalcula.
+   */
+  async remove(actor: RequestUser, id: number) {
+    const team = await this.loadManageable(id);
+    this.assertCanManage(actor, team);
+    if (team.status !== RegistrationStatus.DRAFT) {
+      throw new BadRequestException(
+        'Solo se puede quitar un equipo en borrador',
+      );
+    }
+    const pricing = team.discipline.event.pricing;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.team.delete({ where: { id } });
+      const voucher = team.voucher;
+      if (
+        voucher?.kind !== VoucherKind.EXTRA ||
+        voucher.status !== VoucherStatus.PENDING
+      ) {
+        return;
+      }
+      const covered = await tx.team.count({ where: { voucherId: voucher.id } });
+      if (covered === 0) {
+        await tx.voucher.delete({ where: { id: voucher.id } });
+        return;
+      }
+      if (pricing && team.group) {
+        const withSlot = await tx.team.count({
+          where: { voucherId: voucher.id, slot: { not: null } },
+        });
+        await tx.voucher.update({
+          where: { id: voucher.id },
+          data: { amount: extraFee(pricing, team.group.scope).mul(withSlot) },
+        });
+      }
+    });
+    return { id, deleted: true };
+  }
+
   async approve(id: number) {
     const team = await this.prisma.team.findUnique({
       where: { id },
       include: { participants: true, discipline: true, voucher: true },
     });
     if (!team) throw new NotFoundException('Equipo no encontrado');
+    if (team.status === RegistrationStatus.DRAFT) {
+      throw new BadRequestException(
+        'El equipo es un borrador: el delegado debe enviarlo antes de aprobarlo',
+      );
+    }
     if (team.groupId !== null) {
       return this.approveGroupTeam(team);
     }
@@ -724,6 +960,11 @@ export class RegistrationsService {
   async reject(id: number, reason: string) {
     const team = await this.prisma.team.findUnique({ where: { id } });
     if (!team) throw new NotFoundException('Equipo no encontrado');
+    if (team.status === RegistrationStatus.DRAFT) {
+      throw new BadRequestException(
+        'El equipo es un borrador: aún no fue enviado, no se puede rechazar',
+      );
+    }
     return this.prisma.team.update({
       where: { id },
       data: {

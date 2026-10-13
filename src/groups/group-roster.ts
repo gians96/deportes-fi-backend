@@ -14,6 +14,15 @@ const DNI_PATTERN = /^\d{8}$/;
  * integrantes, sin DNI repetidos y exactamente un capitán/a. Un mismo alumno puede estar en
  * equipos de distintas disciplinas; el duplicado se valida solo dentro del equipo.
  */
+/** Un borrador puede estar incompleto, pero nunca tener dos capitanes. */
+export function assertDraftRoster(members: RosterMember[]): void {
+  if (members.filter((member) => member.isCaptain === true).length > 1) {
+    throw new BadRequestException(
+      'Designa exactamente un capitán/a: hay más de uno',
+    );
+  }
+}
+
 export function assertGroupRoster(members: RosterMember[]): void {
   for (const member of members) {
     if (!member.studentCode?.trim()) {

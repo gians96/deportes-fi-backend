@@ -328,7 +328,7 @@ export class InMemoryPrisma {
     return this.data.teams.filter(
       (team) =>
         this.disciplineById(team.disciplineId).eventId === eventId &&
-        (where.status === undefined || team.status === where.status),
+        matchesStatus(team.status, where.status),
     );
   }
 
@@ -518,6 +518,21 @@ function assertKeys(where: Row, allowed: string[], path: string): void {
   }
 }
 
+/** `status` como valor exacto o `{ not: valor }` (borradores fuera del Contrato 2, spec 006). */
+function matchesStatus(status: unknown, filter: unknown): boolean {
+  if (filter === undefined) return true;
+  if (filter && typeof filter === 'object' && 'not' in filter) {
+    return status !== filter.not;
+  }
+  return status === filter;
+}
+
+/** Filtro `where` de una relación anidada en un `select`: solo `status`; otra clave falla a propósito. */
+function filterNestedRows(rows: Row[], where: Row, label: string): Row[] {
+  assertKeys(where, ['status'], label);
+  return rows.filter((row) => matchesStatus(row.status, where.status));
+}
+
 function applySelect(record: Row, select?: Row): Row {
   if (!select) return record;
   const out: Row = {};
@@ -540,7 +555,11 @@ function applySelect(record: Row, select?: Row): Row {
       if (value === null || value === undefined) {
         out[key] = null;
       } else if (Array.isArray(value)) {
-        out[key] = (value as Row[]).map((item) => applySelect(item, nested));
+        const nestedWhere = (spec as { where?: Row }).where;
+        const rows = nestedWhere
+          ? filterNestedRows(value as Row[], nestedWhere, key)
+          : (value as Row[]);
+        out[key] = rows.map((item) => applySelect(item, nested));
       } else {
         out[key] = applySelect(value as Row, nested);
       }

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -78,8 +79,32 @@ export class CreateRegistrationDto {
   @Type(() => Number)
   extraVoucherId?: number;
 
+  /** Guarda el equipo como borrador (solo salón o ciclo): la nómina puede estar incompleta hasta enviarlo. */
+  @IsOptional()
+  @IsBoolean()
+  draft?: boolean;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ParticipantDto)
   participants!: ParticipantDto[];
+}
+
+/** Cambios de un equipo (`PATCH /registrations/:id`): todos opcionales; `participants` reemplaza la lista completa. */
+export class UpdateRegistrationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  teamName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ParticipantDto)
+  participants?: ParticipantDto[];
 }
