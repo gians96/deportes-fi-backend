@@ -1,7 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { lookupDni } from '../dni-providers/dni-lookup';
-import { DniProvidersService } from '../dni-providers/dni-providers.service';
+import { DniLookupOrigin } from '@prisma/client';
+import { DniLookupService } from '../dni-providers/dni-lookup.service';
 
 /** Respuesta cruda del padrón académico de sivireno. */
 interface RawAcademicStudent {
@@ -27,7 +27,7 @@ export class AcademicService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly dniProviders: DniProvidersService,
+    private readonly dniLookup: DniLookupService,
   ) {
     this.endpoint =
       this.config.get<string>('ACADEMIC_API_URL') ??
@@ -47,53 +47,24 @@ export class AcademicService {
   }
 
   /**
-   * Consulta los datos de una persona por DNI. Recorre los proveedores activos con token (Decolecta,
-   * API Perú…) por prioridad: si uno no puede responder prueba el siguiente y solo se detiene ante
-   * un resultado definitivo (encontrado o "no existe"). Se configuran en Ajustes → Proveedores de DNI.
+   * Consulta los datos de una persona por DNI con el pool de tokens (Admin → Integraciones): caché de 30
+   * días, tokens por prioridad con respaldo automático y, si un proveedor no lo encuentra, un token del
+   * otro antes de responder que no existe. `origin` solo sirve para la bitácora.
    */
-  async findByDni(numero: string): Promise<AcademicPerson | null> {
+  async findByDni(
+    numero: string,
+    origin: DniLookupOrigin = DniLookupOrigin.ROSTER,
+  ): Promise<AcademicPerson | null> {
     if (!/^\d{8}$/.test(numero)) {
       return null;
     }
-    const chain = await this.dniProviders.resolveChain();
-    if (!chain.length) {
-      throw new HttpException(
-        'El servicio de consulta por DNI no está configurado',
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    }
-
-    let someoneRejected = false;
-    for (const provider of chain) {
-      const outcome = await lookupDni(provider.provider, {
-        url: provider.url,
-        token: provider.token,
-        dni: numero,
-      });
-      await this.dniProviders.recordOutcome(provider.provider, outcome);
-
-      if (outcome.kind === 'found') {
-        return {
-          fullName: outcome.person.fullName,
-          studentCode: null,
-          dni: outcome.person.dni,
-        };
-      }
-      if (outcome.kind === 'not_found') {
-        return null;
-      }
-      if (outcome.kind !== 'unavailable') someoneRejected = true;
-      this.logger.warn(
-        `Proveedor de DNI ${provider.provider} no pudo responder (${outcome.kind})`,
-      );
-    }
-
-    throw new HttpException(
-      someoneRejected
-        ? 'No se pudo consultar el DNI'
-        : 'Servicio de consulta por DNI no disponible',
-      HttpStatus.BAD_GATEWAY,
-    );
+    const result = await this.dniLookup.lookup(numero, origin);
+    if (!result) return null;
+    return {
+      fullName: result.person.fullName,
+      studentCode: null,
+      dni: result.person.dni,
+    };
   }
 
   /** Normaliza el registro del padrón a la forma que consume el frontend. */

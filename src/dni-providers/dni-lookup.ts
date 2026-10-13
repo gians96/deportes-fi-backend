@@ -6,17 +6,24 @@ export interface LookedUpPerson {
 }
 
 /**
- * Resultado de consultar un DNI a un proveedor. Solo `not_found` es definitivo: el resto indica que
- * ese proveedor no pudo responder y se puede probar el siguiente.
+ * Resultado de consultar un DNI a un proveedor con un token. Solo `not_found` dice algo del DNI; el resto
+ * habla del token o del proveedor y permite probar el siguiente.
  */
 export type LookupOutcome =
   | { kind: 'found'; person: LookedUpPerson }
   | { kind: 'not_found' }
-  /** 401/403: token inválido, ausente o con el límite de consultas agotado. */
+  /** 401/403: token inválido, ausente o sin permisos. */
   | { kind: 'unauthorized' }
+  /** 429/402: el proveedor dice que el cupo del token se agotó. */
   | { kind: 'limit' }
   /** 5xx, red caída, tiempo agotado o respuesta con un contrato inesperado. */
   | { kind: 'unavailable' };
+
+export interface LookupResponse {
+  outcome: LookupOutcome;
+  /** Código HTTP del proveedor; `null` si no hubo respuesta (red caída, tiempo agotado). */
+  httpStatus: number | null;
+}
 
 export interface LookupRequest {
   url: string;
@@ -31,7 +38,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 function classifyFailure(status: number): LookupOutcome {
   if (status === 404) return { kind: 'not_found' };
   if (status === 401 || status === 403) return { kind: 'unauthorized' };
-  if (status === 429) return { kind: 'limit' };
+  if (status === 429 || status === 402) return { kind: 'limit' };
   return { kind: 'unavailable' };
 }
 
@@ -52,7 +59,10 @@ interface ApiPeruResponse {
   data?: { numero?: string; nombre_completo?: string };
 }
 
-async function lookupDecolecta(request: LookupRequest, response: Response) {
+async function lookupDecolecta(
+  request: LookupRequest,
+  response: Response,
+): Promise<LookupOutcome> {
   const data = (await response.json()) as DecolectaPerson;
   const fullName = cleanName(
     data.full_name ??
@@ -60,28 +70,34 @@ async function lookupDecolecta(request: LookupRequest, response: Response) {
         .filter(Boolean)
         .join(' '),
   );
-  if (!fullName) return { kind: 'unavailable' } as const;
+  if (!fullName) return { kind: 'unavailable' };
   return {
     kind: 'found',
     person: { fullName, dni: data.document_number ?? request.dni },
-  } as const;
+  };
 }
 
-async function lookupApiPeru(request: LookupRequest, response: Response) {
+async function lookupApiPeru(
+  request: LookupRequest,
+  response: Response,
+): Promise<LookupOutcome> {
   const data = (await response.json()) as ApiPeruResponse;
   const fullName = cleanName(data.data?.nombre_completo ?? '');
-  if (!data.success || !fullName) return { kind: 'unavailable' } as const;
+  if (!data.success || !fullName) return { kind: 'unavailable' };
   return {
     kind: 'found',
     person: { fullName, dni: data.data?.numero ?? request.dni },
-  } as const;
+  };
 }
 
-/** Consulta un DNI a un proveedor y clasifica la respuesta; nunca lanza ni registra el token. */
-export async function lookupDni(
+/**
+ * Consulta un DNI a un proveedor, clasifica la respuesta y devuelve también el código HTTP. Nunca lanza
+ * ni registra el token.
+ */
+export async function lookupDniDetailed(
   provider: DniProvider,
   request: LookupRequest,
-): Promise<LookupOutcome> {
+): Promise<LookupResponse> {
   const fetchFn = request.fetchFn ?? fetch;
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -107,14 +123,27 @@ export async function lookupDni(
           );
 
     if (!response.ok) {
-      return classifyFailure(response.status);
+      return {
+        outcome: classifyFailure(response.status),
+        httpStatus: response.status,
+      };
     }
-    return provider === DniProvider.APIPERU
-      ? await lookupApiPeru(request, response)
-      : await lookupDecolecta(request, response);
+    const outcome =
+      provider === DniProvider.APIPERU
+        ? await lookupApiPeru(request, response)
+        : await lookupDecolecta(request, response);
+    return { outcome, httpStatus: response.status };
   } catch {
-    return { kind: 'unavailable' };
+    return { outcome: { kind: 'unavailable' }, httpStatus: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Igual que `lookupDniDetailed`, solo con la clasificación. */
+export async function lookupDni(
+  provider: DniProvider,
+  request: LookupRequest,
+): Promise<LookupOutcome> {
+  return (await lookupDniDetailed(provider, request)).outcome;
 }

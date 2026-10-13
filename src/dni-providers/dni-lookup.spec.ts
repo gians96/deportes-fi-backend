@@ -1,5 +1,5 @@
 import { DniProvider } from '@prisma/client';
-import { lookupDni } from './dni-lookup';
+import { lookupDni, lookupDniDetailed } from './dni-lookup';
 
 const json = (body: unknown, status = 200) =>
   Promise.resolve(
@@ -164,5 +164,59 @@ describe('lookupDni · fallas de red', () => {
     await expect(
       lookupDni(DniProvider.APIPERU, { ...base, fetchFn: fn, timeoutMs: 20 }),
     ).resolves.toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('lookupDniDetailed · código HTTP y cupo', () => {
+  it('devuelve el código HTTP de la respuesta', async () => {
+    const found = fakeFetch(() => json({ full_name: 'PEREZ GOMEZ JUAN' }));
+    expect(
+      await lookupDniDetailed(DniProvider.DECOLECTA, {
+        ...base,
+        fetchFn: found.fn,
+      }),
+    ).toMatchObject({ outcome: { kind: 'found' }, httpStatus: 200 });
+
+    const rejected = fakeFetch(() => json({}, 401));
+    expect(
+      await lookupDniDetailed(DniProvider.DECOLECTA, {
+        ...base,
+        fetchFn: rejected.fn,
+      }),
+    ).toEqual({ outcome: { kind: 'unauthorized' }, httpStatus: 401 });
+  });
+
+  it('sin respuesta (red caída) el código HTTP es null', async () => {
+    const { fn } = fakeFetch(() => Promise.reject(new Error('ECONNRESET')));
+    expect(
+      await lookupDniDetailed(DniProvider.APIPERU, { ...base, fetchFn: fn }),
+    ).toEqual({ outcome: { kind: 'unavailable' }, httpStatus: null });
+  });
+
+  it('429 y 402 significan que el cupo del token se agotó', async () => {
+    for (const status of [429, 402]) {
+      const { fn } = fakeFetch(() => json({}, status));
+      for (const provider of [DniProvider.DECOLECTA, DniProvider.APIPERU]) {
+        expect(await lookupDni(provider, { ...base, fetchFn: fn })).toEqual({
+          kind: 'limit',
+        });
+      }
+    }
+  });
+
+  it('401 y 403 son token rechazado; 404 es "no existe"; 5xx es "no disponible"', async () => {
+    const expected: Array<[number, string]> = [
+      [401, 'unauthorized'],
+      [403, 'unauthorized'],
+      [404, 'not_found'],
+      [500, 'unavailable'],
+      [503, 'unavailable'],
+    ];
+    for (const [status, kind] of expected) {
+      const { fn } = fakeFetch(() => json({}, status));
+      expect(
+        await lookupDni(DniProvider.DECOLECTA, { ...base, fetchFn: fn }),
+      ).toEqual({ kind });
+    }
   });
 });

@@ -94,13 +94,15 @@ evento deportivo para la "Semana Sistémica".
 - El rate limit es global por IP y vive como guard de aplicación; no hacerlo
   específico de Decolecta o de un endpoint aislado.
 
-**Proveedores de DNI** (`specs/003-proveedores-dni`): Decolecta y API Perú se configuran **solo en la
-base de datos** desde el panel (token cifrado, URL, prioridad, activación); **no** hay variables
-`DECOLECTA_*`/`APIPERU_*` y los cambios rigen en la siguiente consulta, sin reiniciar. La consulta
-(`AcademicService.findByDni`) recorre los activos por prioridad y solo se detiene ante "encontrado"
-o "no existe" (404). Los tokens nunca salen por la API ni por los logs; la clave de cifrado es
-`INTEGRATION_SECRET_KEY` o, si falta, se deriva de `JWT_SECRET`. Las pruebas que usan `ConfigService`
-deben usar una configuración falsa: el real cae a `process.env`, donde Prisma ya cargó el `.env`.
+**Consulta de DNI** (`specs/005-pool-tokens-dni`, reemplaza a la 003): los tokens de Decolecta y API Perú viven
+**solo en la base de datos** (`DniToken`: varios por proveedor, con prioridad, cupo, renovación y estado), se
+administran desde Admin → Integraciones y rigen en la siguiente consulta; **no** hay variables
+`DECOLECTA_*`/`APIPERU_*`. `AcademicService.findByDni(dni, origin)` usa `DniLookupService`: caché de 30 días →
+tokens `ACTIVE` por prioridad (401 = inválido, 429/402 = agotado, 5xx = solo error) y, ante un 404, un token del
+otro proveedor antes de responder "no existe". Los tokens nunca salen por la API ni por los logs; la bitácora solo
+guarda el DNI enmascarado. La clave de cifrado es `INTEGRATION_SECRET_KEY` o, si falta, se deriva de `JWT_SECRET`.
+Las pruebas que usan `ConfigService` deben usar una configuración falsa: el real cae a `process.env`, donde
+Prisma ya cargó el `.env`.
 
 **Pago por salón o ciclo** (`specs/002-pago-por-grupo`, eventos con `SportEvent.pricingMode =
 PER_GROUP`; los eventos `PER_DISCIPLINE` no cambian):
@@ -246,7 +248,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni`, `004-tesorero-y-acceso-por-contrasena`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni` (reemplazada por la 005), `004-tesorero-y-acceso-por-contrasena`, `005-pool-tokens-dni`.
 
 ## Antes de dar por terminado
 

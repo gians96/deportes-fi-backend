@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
-import { Role, User } from '@prisma/client';
+import { DniLookupOrigin, Role, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AcademicService } from '../academic/academic.service';
 import { LoginThrottle } from './login-throttle';
@@ -273,7 +273,10 @@ export class AuthService {
       if (!cleanDni || !/^\d{8}$/.test(cleanDni)) {
         throw new BadRequestException('El DNI debe tener 8 digitos');
       }
-      const person = await this.academic.findByDni(cleanDni);
+      const person = await this.academic.findByDni(
+        cleanDni,
+        DniLookupOrigin.PROFILE,
+      );
       if (!person) {
         throw new BadRequestException('No se pudo validar el DNI');
       }

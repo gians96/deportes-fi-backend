@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { DniProvidersController } from './dni-providers.controller';
-import { DniProvidersService } from './dni-providers.service';
+import { DniLookupService } from './dni-lookup.service';
+import { DniTokensController } from './dni-tokens.controller';
+import { DniTokensService } from './dni-tokens.service';
 
 @Module({
-  controllers: [DniProvidersController],
-  providers: [DniProvidersService],
-  exports: [DniProvidersService],
+  controllers: [DniTokensController],
+  providers: [DniTokensService, DniLookupService],
+  exports: [DniTokensService, DniLookupService],
 })
 export class DniProvidersModule {}

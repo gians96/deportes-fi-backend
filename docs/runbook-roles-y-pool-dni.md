@@ -50,3 +50,40 @@ Cambiar o quitar la contraseña (**Usuarios → Contraseña**) cierra todas las 
 1. `POST /auth/login` con una cuenta de prueba responde 201; con una clave errónea, 401.
 2. Un Tesorero ve `GET /vouchers` (200) y recibe 403 en `GET /users`.
 3. Google sigue funcionando para las cuentas existentes.
+
+## Spec 005 — Pool de tokens de consulta de DNI
+
+### Migración `20261014130000_pool_tokens_dni`
+
+Crea `DniToken`, `DniLookupLog` y `DniPersonCache`, **copia** a `DniToken` los tokens que hubiera en
+`DniProviderConfig` (mismo cifrado; siguen siendo válidos con la misma clave) y elimina `DniProviderConfig`. La
+spec 003 nunca se desplegó, así que en producción esa tabla no existe todavía: si la migración `20261013170000`
+aún no se aplicó, Prisma las aplica en orden y el resultado es el mismo (la copia no encuentra filas).
+
+Despliegue: aplicar la migración (`prisma migrate deploy`) y luego backend y frontend. Reversa: restaurar el
+respaldo previo; la tabla antigua se elimina y no se recrea.
+
+### Después de desplegar
+
+1. Entra como Owner o Administrador a **Admin → Integraciones**.
+2. **Agregar token** por cada cuenta de Decolecta o API Perú: alias, proveedor, token y —si lo conoces— límite de
+   consultas y renovación (mensual, diaria, anual o ninguna) con su próxima fecha. Menor prioridad = se usa primero.
+3. Pulsa **Probar** con un DNI real en cada uno (gasta una consulta). Un token rechazado queda «Inválido»; uno sin
+   cupo, «Agotado».
+4. Los tokens del `.env` (`DECOLECTA_*`, `APIPERU_*`) ya no se leen: hay que cargarlos una vez en el panel.
+
+### Operación
+
+- **Un token falla o se agota**: la consulta sigue con el siguiente por prioridad, sin intervención. Agrega otro
+  token del mismo proveedor cuando quieras más capacidad. «Reiniciar» devuelve un token a «Activo» con el contador en
+  0 (úsalo si el proveedor renovó tu plan antes de la fecha).
+- **Sin tokens disponibles**: la inscripción por DNI responde 503 y el usuario debe esperar o escribir sus datos si
+  el flujo lo permite. El aviso rojo del panel lo indica.
+- **Caché**: los nombres consultados se reutilizan 30 días (no gastan cupo). «Vaciar caché» la borra (por ejemplo si
+  RENIEC corrigió un nombre). Guarda solo DNI y nombre.
+- **Bitácora**: guarda el DNI enmascarado, el resultado y el origen; no se purga sola. Si crece demasiado, bórrala
+  con SQL (`DELETE FROM DniLookupLog WHERE createdAt < ...`).
+- **Cambiaste `JWT_SECRET` o `INTEGRATION_SECRET_KEY`**: los tokens guardados ya no se pueden descifrar; cada uno se
+  marca «Inválido» («No se pudo descifrar…») al intentar usarlo. Vuelve a ingresarlos. Para evitarlo en producción
+  define `INTEGRATION_SECRET_KEY` (32 bytes en base64 o 64 hex) y no la cambies.
+- Un DNI que ningún proveedor conoce cuesta una consulta en cada proveedor antes de responder «no existe».

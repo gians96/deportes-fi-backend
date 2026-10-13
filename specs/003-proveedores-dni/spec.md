@@ -4,7 +4,9 @@
 
 **Created**: 2026-10-13
 
-**Status**: Implementada en el backend (2026-10-13); la pantalla se especifica en `frontend/specs/003-*`
+**Status**: Reemplazada por `005-pool-tokens-dni` (2026-10-14): un solo token por proveedor se quedó corto. El modelo
+`DniProviderConfig` y las rutas `/settings/dni-providers` se retiraron antes de desplegarse; se conserva este
+documento como historial de la decisión.
 
 **Input**: "Usar apiperu.dev para consultar el DNI y que sea configurable dentro de la plataforma:
 guardado en la base de datos, visible y editable desde la web y dinámico, sin tener que recargar el

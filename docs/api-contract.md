@@ -102,39 +102,57 @@ Devuelve `AcademicPerson` con `studentCode: null`.
 
 ---
 
-## Ajustes: proveedores de DNI
+## Ajustes: tokens de consulta de DNI
 
-Configuración **en la base de datos** (no en variables de entorno) de los servicios que validan el
-DNI. Solo `OWNER_SYSTEM`/`ADMIN_SYSTEM`. Un cambio se aplica en la siguiente consulta, sin reiniciar
-el servidor. Ninguna respuesta incluye tokens ni datos personales.
+Pool de tokens que validan el DNI (spec 005): varios por proveedor (Decolecta, API Perú), cada uno con
+**prioridad**, cupo y renovación. Todo vive **en la base de datos** (no en variables de entorno) y un cambio
+rige en la siguiente consulta, sin reiniciar. Solo `OWNER_SYSTEM`/`ADMIN_SYSTEM`. Ninguna respuesta incluye
+el valor de un token; solo la consulta manual devuelve un nombre.
 
 | Método | Ruta | Notas |
 | ------ | ---- | ----- |
-| GET    | `/settings/dni-providers` | `{ encryptionKey, providers[] }` |
-| PUT    | `/settings/dni-providers/:provider` | `:provider` = `DECOLECTA` \| `APIPERU` (sin distinguir mayúsculas) |
-| POST   | `/settings/dni-providers/:provider/test` | `{ "dni": "12345678" }` → `{ ok, result, message }` |
+| GET    | `/settings/dni-tokens` | `{ encryptionKey, providers[], tokens[] }` ordenados por prioridad |
+| POST   | `/settings/dni-tokens` | Agrega un token (ver ↓); responde la vista del token |
+| PATCH  | `/settings/dni-tokens/:id` | Todos los campos opcionales; un `token` nuevo lo devuelve a `ACTIVE` |
+| DELETE | `/settings/dni-tokens/:id` | 204; su historial se conserva sin el token |
+| POST   | `/settings/dni-tokens/:id/reset` | Contador en 0 y `ACTIVE` |
+| POST   | `/settings/dni-tokens/:id/test` | `{ "dni": "12345678" }` → `{ ok, result, message, token }`; gasta una consulta real, sin datos personales |
+| GET    | `/settings/dni-tokens/usage?days=30` | Consultas por día (hora de Lima) y por token, por resultado |
+| GET    | `/settings/dni-tokens/logs?page=1` | Bitácora de 20 en 20, la más reciente primero; DNI enmascarado (`76****07`) |
+| POST   | `/settings/dni-tokens/lookup` | `{ "dni": "…" }` → `{ found, dni, fullName?, source: CACHE\|PROVIDER, provider? }` usando pool y caché |
+| DELETE | `/settings/dni-tokens/cache` | Vacía la caché → `{ deleted }` |
 
 ```jsonc
-// GET
-{ "encryptionKey": "derived",   // dedicated (INTEGRATION_SECRET_KEY) | derived (de JWT_SECRET) | none
-  "providers": [
-    { "provider": "DECOLECTA", "label": "Decolecta (RENIEC)", "enabled": true, "priority": 0,
-      "apiUrl": "https://api.decolecta.com/v1/reniec/dni", "defaultUrl": "https://api.decolecta.com/v1/reniec/dni",
-      "customUrl": false, "configured": true, "tokenMask": "••••a1b2",
-      "state": "INVALID", "lastError": "UNAUTHORIZED_OR_LIMIT", "lastCheckedAt": "2026-10-13T15:00:00.000Z" } ] }
+// POST /settings/dni-tokens
+{ "provider": "DECOLECTA", "name": "Decolecta cuenta congreso", "token": "…",
+  "apiUrl": null,            // nulo o vacío = URL oficial
+  "priority": 10,            // menor = primero; si se omite, al final de la lista
+  "enabled": true,
+  "queryLimit": 1000,        // cupo del plan; nulo = sin límite conocido
+  "queriesUsed": 0,
+  "renewalPeriod": "MONTHLY", // DAILY | MONTHLY | YEARLY | NONE
+  "renewsAt": "2026-11-01T00:00:00.000Z" }
 
-// PUT — todos los campos son opcionales
-{ "token": "…", "enabled": true, "priority": 0, "apiUrl": "https://…" }
+// Vista de un token (nunca trae el valor)
+{ "id": 1, "provider": "DECOLECTA", "providerLabel": "Decolecta (RENIEC)", "name": "…",
+  "tokenMask": "••••a1b2", "apiUrl": "https://api.decolecta.com/v1/reniec/dni", "customUrl": false,
+  "priority": 10, "enabled": true, "state": "ACTIVE",       // ACTIVE | EXHAUSTED | INVALID
+  "available": true, "queryLimit": 1000, "queriesUsed": 40, "queriesRemaining": 960, "usagePercent": 4,
+  "renewalPeriod": "MONTHLY", "renewsAt": "…", "lastError": null, "lastUsedAt": "…", "exhaustedAt": null }
 ```
 
-- `token`: una cadena nueva reemplaza la guardada (se aceptan pegados con "Bearer "); `null` o vacío la
-  borra. Se guarda **cifrada** (AES-256-GCM) y solo se muestran los últimos 4 caracteres.
-- `apiUrl`: dirección http(s) del servicio; `null` o vacío vuelve a la URL oficial.
-- `priority`: 0–100, menor = se consulta primero; si uno falla se prueba el siguiente.
-- `state`: `UNVERIFIED`, `VALID` o `INVALID` según la última consulta real o de prueba; `lastError`:
-  `UNAUTHORIZED_OR_LIMIT`, `RATE_LIMITED` o `UNAVAILABLE`.
-- Errores: `400` (token corto, URL inválida, DNI mal formado, proveedor sin token), `404` (proveedor
-  desconocido), `503` (el servidor no tiene ninguna clave para cifrar), `401`/`403` (sesión o rol).
+- **Cómo se consulta un DNI**: caché (30 días) → tokens `enabled` y `ACTIVE` con cupo, por `priority` y luego `id`.
+  401/403 → `INVALID`; 429/402 → `EXHAUSTED`; 5xx, red o tiempo agotado → solo `lastError` (el token sigue
+  disponible); 404 → ese proveedor no lo conoce y se prueba **un token del otro proveedor** antes de responder
+  que no existe. Cada consulta real suma 1 al contador y, al alcanzar `queryLimit`, el token queda `EXHAUSTED`.
+- **Renovación**: al vencer `renewsAt` el contador vuelve a 0 y el token a `ACTIVE` (un `INVALID` no se
+  rehabilita solo); la siguiente fecha conserva el día del ciclo.
+- `token`: se aceptan pegados con "Bearer "; se guardan **cifrados** (AES-256-GCM) y solo se muestran los
+  últimos 4 caracteres. `encryptionKey`: `dedicated` (`INTEGRATION_SECRET_KEY`), `derived` (de `JWT_SECRET`) o
+  `none` (503 al guardar).
+- Errores: `400` (token corto, alias vacío, URL inválida, fecha inválida, DNI mal formado), `404` (token
+  inexistente), `503` (sin clave de cifrado), `401`/`403` (sesión o rol).
+- Reemplaza a `/settings/dni-providers` de la spec 003 (nunca desplegada).
 
 ---
 
@@ -606,21 +624,18 @@ integrantes. Las URLs y credenciales se configuran por variables de entorno
 
 ### Decolecta y API Perú — consulta de DNI
 - **Configuración**: en la base de datos, desde el panel (ver
-  [Ajustes: proveedores de DNI](#ajustes-proveedores-de-dni)); no hay variables de entorno.
+  [Ajustes: tokens de consulta de DNI](#ajustes-tokens-de-consulta-de-dni)); no hay variables de entorno.
 - **API Perú**: `POST https://api.apiperu.dev/dni` con `{ "dni": "…" }` y `Authorization: Bearer`;
-  `404` = no existe, `401` = token inválido, éxito = `{ success, data: { numero, nombre_completo } }`.
-- **Decolecta** (detalle):
-- **Método**: `GET ?numero=<8 dígitos>` (URL por defecto `https://api.decolecta.com/v1/reniec/dni`) con header
-  `Authorization: Bearer <token>`.
-- **Consumido por**: `GET /academic/dni` y `PATCH /auth/me/profile` para
-  usuarios `OTHER`.
-- **Uso**: validar integrantes de disciplinas `participantType = OTHER` y
-  completar el perfil de usuarios no estudiantiles.
-- **Respuesta cruda**: `{ first_name, first_last_name, second_last_name,
-  full_name, document_number }` → se mapea a `AcademicPerson { fullName:
-  full_name, dni: document_number, studentCode: null }`.
-- **Errores**: `503` si ningún proveedor activo tiene token; `404` si el DNI no existe; `502` si
-  ninguno pudo responder (token inválido, límite agotado o servicio caído).
+  `404` = no existe, `401` = token inválido, `429` = cupo agotado, éxito = `{ success, data: { numero,
+  nombre_completo } }`.
+- **Decolecta**: `GET ?numero=<8 dígitos>` (URL por defecto `https://api.decolecta.com/v1/reniec/dni`) con
+  `Authorization: Bearer <token>`; éxito = `{ first_name, first_last_name, second_last_name, full_name,
+  document_number }`.
+- **Consumido por**: `GET /academic/dni` (origen `ROSTER`) y `PATCH /auth/me/profile` para usuarios `OTHER`
+  (origen `PROFILE`); ambos se mapean a `AcademicPerson { fullName, dni, studentCode: null }`.
+- **Errores**: `503` si no hay ningún token configurado (o ninguno disponible); `404` si ningún proveedor
+  conoce el DNI; `502` si todos los tokens disponibles fallaron (token rechazado, cupo agotado o servicio
+  caído). Las repeticiones dentro de 30 días salen de la caché y no gastan cupo.
 
 ---
 

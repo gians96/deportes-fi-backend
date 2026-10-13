@@ -63,8 +63,8 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 - [ ] `API_TOKEN_PEPPER` definido (aleatorio, ≥ 32 caracteres) y guardado en el
       gestor de secretos; no rotarlo sin reemitir los tokens de integración.
 - [ ] Tokens de los proveedores de DNI (Decolecta / API Perú) cargados desde el panel
-      (Ajustes → Proveedores de DNI). Ya **no** se leen de `DECOLECTA_TOKEN`: al desplegar esta
-      versión hay que volver a ingresarlos una vez.
+      (Admin → Integraciones; se pueden agregar varios por proveedor, con prioridad y cupo). Ya **no** se
+      leen de `DECOLECTA_TOKEN`: al desplegar esta versión hay que volver a ingresarlos una vez.
 - [ ] CORS no se configura: la API acepta cualquier origen (la protegen el JWT y los tokens).
 - [ ] `GOOGLE_CLIENT_ID` coincide con el del frontend y el dominio está
       autorizado en Google Cloud Console (orígenes JS).

@@ -65,10 +65,35 @@ enum DniProvider {
   APIPERU
 }
 
-enum CredentialState {
-  UNVERIFIED
-  VALID
+/// Estado de un token del pool: ACTIVE se consulta; EXHAUSTED agotó su cupo (se renueva o se reinicia);
+/// INVALID fue rechazado por el proveedor (hay que reemplazarlo o reiniciarlo).
+enum DniTokenState {
+  ACTIVE
+  EXHAUSTED
   INVALID
+}
+
+enum RenewalPeriod {
+  DAILY
+  MONTHLY
+  YEARLY
+  NONE
+}
+
+enum DniLookupResult {
+  SUCCESS
+  CACHE
+  NOT_FOUND
+  EXHAUSTED
+  INVALID_TOKEN
+  ERROR
+  NO_TOKENS
+}
+
+enum DniLookupOrigin {
+  PROFILE
+  ROSTER
+  PANEL
 }
 
 enum PricingMode {
@@ -123,44 +148,44 @@ model ProfessionalSchool {
 }
 
 model User {
-  id          Int     @id @default(autoincrement())
-  email       String  @unique
-  fullName    String
-  googleSub   String? @unique
+  id           Int                 @id @default(autoincrement())
+  email        String              @unique
+  fullName     String
+  googleSub    String?             @unique
   // scrypt (`scrypt$N$r$p$sal$hash`); nulo = la cuenta solo entra con Google. Nunca sale por la API.
-  passwordHash String? @db.VarChar(255)
+  passwordHash String?             @db.VarChar(255)
   // Sube al cambiar o quitar la contraseña: invalida las sesiones emitidas antes (claim `tv` del JWT).
-  tokenVersion Int    @default(0)
-  avatarUrl   String?
-  role        Role    @default(STUDENT)
-  isActive    Boolean @default(true)
-  studentCode String? @unique
-  dni         String?
-  facultyId   Int?
-  faculty     Faculty? @relation(fields: [facultyId], references: [id])
-  schoolId    Int?
-  school      ProfessionalSchool? @relation(fields: [schoolId], references: [id])
+  tokenVersion Int                 @default(0)
+  avatarUrl    String?
+  role         Role                @default(STUDENT)
+  isActive     Boolean             @default(true)
+  studentCode  String?             @unique
+  dni          String?
+  facultyId    Int?
+  faculty      Faculty?            @relation(fields: [facultyId], references: [id])
+  schoolId     Int?
+  school       ProfessionalSchool? @relation(fields: [schoolId], references: [id])
 
-  delegatedTeams Team[] @relation("TeamDelegate")
-  delegatedGroups ClassGroup[] @relation("GroupDelegate")
-  participations Participant[]
+  delegatedTeams  Team[]        @relation("TeamDelegate")
+  delegatedGroups ClassGroup[]  @relation("GroupDelegate")
+  participations  Participant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model SportEvent {
-  id          Int     @id @default(autoincrement())
+  id          Int                 @id @default(autoincrement())
   name        String
-  description String? @db.Text
+  description String?             @db.Text
   facultyId   Int
-  faculty     Faculty @relation(fields: [facultyId], references: [id])
+  faculty     Faculty             @relation(fields: [facultyId], references: [id])
   schoolId    Int?
   school      ProfessionalSchool? @relation(fields: [schoolId], references: [id])
   startDate   DateTime
   endDate     DateTime
-  isOpen      Boolean @default(true)
-  pricingMode PricingMode @default(PER_DISCIPLINE)
+  isOpen      Boolean             @default(true)
+  pricingMode PricingMode         @default(PER_DISCIPLINE)
 
   disciplines Discipline[]
   apiTokens   EventApiToken[]
@@ -244,10 +269,10 @@ model Team {
 
   participants  Participant[]
   legacyVoucher Voucher?      @relation("LegacyVoucherTeam")
-  homeMatches  Match[]       @relation("HomeTeam")
-  awayMatches  Match[]       @relation("AwayTeam")
-  wonMatches   Match[]       @relation("WinnerTeam")
-  standing     Standing?
+  homeMatches   Match[]       @relation("HomeTeam")
+  awayMatches   Match[]       @relation("AwayTeam")
+  wonMatches    Match[]       @relation("WinnerTeam")
+  standing      Standing?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -257,16 +282,16 @@ model Team {
 }
 
 model Participant {
-  id          Int     @id @default(autoincrement())
-  teamId      Int
-  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId      Int?
-  user        User?   @relation(fields: [userId], references: [id])
-  fullName    String
-  studentCode String?
-  dni         String?
-  gender      Gender  @default(O)
-  isDelegate  Boolean @default(false)
+  id             Int     @id @default(autoincrement())
+  teamId         Int
+  team           Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId         Int?
+  user           User?   @relation(fields: [userId], references: [id])
+  fullName       String
+  studentCode    String?
+  dni            String?
+  gender         Gender  @default(O)
+  isDelegate     Boolean @default(false)
   countsAsPlayer Boolean @default(true)
   isCaptain      Boolean @default(false)
 
@@ -373,24 +398,64 @@ model ClassGroup {
   @@index([eventId, schoolId, cycle])
 }
 
-// Proveedor de consulta de DNI (Decolecta, API Perú) configurable desde la plataforma. El token se
-// guarda cifrado con AES-256-GCM (clave de INTEGRATION_SECRET_KEY o derivada de JWT_SECRET) y nunca se
-// devuelve por la API. `apiUrl` null = URL oficial del proveedor.
-model DniProviderConfig {
-  id            Int             @id @default(autoincrement())
-  provider      DniProvider     @unique
-  enabled       Boolean         @default(true)
-  priority      Int             @default(0)
-  apiUrl        String?         @db.VarChar(300)
-  tokenCipher   String?         @db.Text
-  tokenIv       String?
-  tokenTag      String?
-  tokenLast4    String?
-  state         CredentialState @default(UNVERIFIED)
-  lastError     String?
-  lastCheckedAt DateTime?
-  updatedById   Int?
+// Pool de tokens de consulta de DNI (spec 005): varios por proveedor, cada uno con prioridad, cupo y
+// renovación. El token se guarda cifrado con AES-256-GCM (clave de INTEGRATION_SECRET_KEY o derivada de
+// JWT_SECRET) y nunca se devuelve por la API. `apiUrl` null = URL oficial del proveedor.
+model DniToken {
+  id            Int           @id @default(autoincrement())
+  provider      DniProvider
+  name          String        @db.VarChar(100)
+  tokenCipher   String        @db.Text
+  tokenIv       String
+  tokenTag      String
+  tokenLast4    String        @db.VarChar(8)
+  apiUrl        String?       @db.VarChar(300)
+  /// Menor número = se consulta primero.
+  priority      Int           @default(100)
+  enabled       Boolean       @default(true)
+  state         DniTokenState @default(ACTIVE)
+  /// Cupo del plan del proveedor; nulo = sin límite conocido.
+  queryLimit    Int?
+  queriesUsed   Int           @default(0)
+  renewalPeriod RenewalPeriod @default(MONTHLY)
+  /// Próxima fecha en que el proveedor reinicia el cupo; vencida, el contador vuelve a 0.
+  renewsAt      DateTime?
+  lastError     String?       @db.VarChar(500)
+  lastUsedAt    DateTime?
+  exhaustedAt   DateTime?
+  createdById   Int?
+
+  lookups DniLookupLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([enabled, state, priority])
+}
+
+// Bitácora de consultas de DNI: solo el DNI enmascarado (`76****07`), nunca el nombre ni el token.
+// Al borrar un token el historial se conserva sin él.
+model DniLookupLog {
+  id         Int             @id @default(autoincrement())
+  tokenId    Int?
+  token      DniToken?       @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+  provider   DniProvider?
+  dniMask    String          @db.VarChar(8)
+  result     DniLookupResult
+  httpStatus Int?
+  durationMs Int?
+  origin     DniLookupOrigin
+  detail     String?         @db.VarChar(300)
+  createdAt  DateTime        @default(now())
+
+  @@index([createdAt])
+  @@index([tokenId, createdAt])
+}
+
+// Caché de personas ya consultadas (solo DNI y nombre, 30 días): evita gastar cupo en repeticiones.
+model DniPersonCache {
+  dni       String      @id @db.VarChar(8)
+  fullName  String      @db.VarChar(250)
+  provider  DniProvider
+  fetchedAt DateTime    @default(now())
 }

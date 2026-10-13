@@ -92,14 +92,21 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   se rechaza.
 - Migración `20261014120000_tesorero_y_acceso_por_contrasena` (modifica el enum y agrega 2 columnas).
 
-### Proveedores de DNI (spec 003)
+### Pool de tokens de DNI (spec 005, reemplaza a la spec 003)
 
-- **DniProviderConfig**: una fila por proveedor (`DECOLECTA`, `APIPERU`) con `enabled`, `priority`
-  (menor = primero), `apiUrl` (nula = URL oficial), el token **cifrado** (AES-256-GCM:
-  `tokenCipher`, `tokenIv`, `tokenTag`) y `tokenLast4` para mostrar una máscara, más el estado de la
-  última consulta (`state` = `UNVERIFIED`/`VALID`/`INVALID`, `lastError`, `lastCheckedAt`). La clave sale
-  de `INTEGRATION_SECRET_KEY` o, si falta, de `JWT_SECRET`; nunca se guarda en la base.
-- Migración `20261013170000_proveedores_dni` (solo crea la tabla).
+- **DniToken**: un token de Decolecta o API Perú (puede haber varios por proveedor) con alias, `priority`
+  (menor = primero), `enabled`, `state` (`ACTIVE`/`EXHAUSTED`/`INVALID`), cupo (`queryLimit`,
+  `queriesUsed`), renovación (`renewalPeriod`, `renewsAt`), `apiUrl` (nula = URL oficial), `lastError`,
+  `lastUsedAt`, `exhaustedAt` y el token **cifrado** (AES-256-GCM: `tokenCipher`, `tokenIv`, `tokenTag`) con
+  `tokenLast4` para la máscara. La clave sale de `INTEGRATION_SECRET_KEY` o, si falta, de `JWT_SECRET`; nunca
+  se guarda en la base. Índice `[enabled, state, priority]`.
+- **DniLookupLog**: bitácora de cada consulta (`tokenId` con `SET NULL` al borrar el token, `dniMask`
+  `76****07`, `result`, `httpStatus`, `durationMs`, `origin` `PROFILE|ROSTER|PANEL`, `detail`). Nunca guarda
+  el nombre ni el token.
+- **DniPersonCache**: DNI, nombre y proveedor de las personas ya consultadas; vigencia de 30 días
+  (`DNI_CACHE_DAYS`).
+- Migración `20261014130000_pool_tokens_dni`: crea las tres tablas, copia los tokens de `DniProviderConfig`
+  (mismo cifrado) y elimina la tabla de la spec 003.
 
 ### Pago por salón o ciclo (spec 002)
 

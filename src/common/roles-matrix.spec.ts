@@ -5,7 +5,7 @@ import { AcademicController } from '../academic/academic.controller';
 import { AdminController } from '../admin/admin.controller';
 import { AuthController } from '../auth/auth.controller';
 import { DisciplinesController } from '../disciplines/disciplines.controller';
-import { DniProvidersController } from '../dni-providers/dni-providers.controller';
+import { DniTokensController } from '../dni-providers/dni-tokens.controller';
 import { EventTokensController } from '../event-tokens/event-tokens.controller';
 import { EventsController } from '../events/events.controller';
 import { FacultiesController } from '../faculties/faculties.controller';
@@ -24,7 +24,7 @@ const CONTROLLERS: Array<Type<unknown>> = [
   AdminController,
   AuthController,
   DisciplinesController,
-  DniProvidersController,
+  DniTokensController,
   EventTokensController,
   EventsController,
   FacultiesController,
@@ -96,7 +96,10 @@ describe('matriz de roles', () => {
       'UsersController.setPassword',
       'EventsController.create',
       'EventTokensController.create',
-      'DniProvidersController.list',
+      'DniTokensController.list',
+      'DniTokensController.create',
+      'DniTokensController.manualLookup',
+      'DniTokensController.clearCache',
       'VouchersController.replace',
     ]) {
       const roles = routes.get(route);
