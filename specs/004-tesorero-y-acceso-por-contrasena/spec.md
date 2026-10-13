@@ -112,4 +112,7 @@ configura nada.
   estudiante recibe 403 en zonas de administración; tras 5 claves erróneas el login responde 429 incluso con la
   clave correcta; correo inexistente responde el mismo 401; cambiar la contraseña invalida el JWT anterior (401) y
   quitarla deja `hasPassword: false`.
+- Owner y Administrador: con `garias@undc.edu.pe` como Owner local (`OWNER_EMAILS`), el Owner crea un Administrador con
+  contraseña (201) que inicia sesión; ese Administrador recibe 403 al crear otro Administrador, 201 al crear un
+  Tesorero y conserva el acceso a los ajustes de DNI. Solo el Owner ve y asigna los roles Administrador y Owner.
 - Pendiente: probar el acceso con Google de una cuenta con contraseña contra Google real (solo con pruebas unitarias).
