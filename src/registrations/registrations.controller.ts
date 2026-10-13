@@ -29,6 +29,15 @@ import {
 } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
 
+function optionalId(value: string | undefined, name: string) {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new BadRequestException(`${name} debe ser un número entero positivo`);
+  }
+  return parsed;
+}
+
 @Controller('registrations')
 export class RegistrationsController {
   constructor(private readonly registrations: RegistrationsService) {}
@@ -84,6 +93,8 @@ export class RegistrationsController {
       cycle: body.cycle,
       section: body.section,
       operationNumber: body.operationNumber,
+      groupId: optionalId(body.groupId, 'groupId'),
+      extraVoucherId: optionalId(body.extraVoucherId, 'extraVoucherId'),
       participants,
     };
 

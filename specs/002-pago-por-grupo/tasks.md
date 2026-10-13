@@ -52,12 +52,12 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 5: US2 + US3 - Equipos con cupos y adicionales (P1)
 
-- [ ] T016 [P] [US2] Ampliar `ParticipantDto` (`isCaptain`) y el parseo de `POST /registrations` (`groupId`, `extraVoucherId`)
-- [ ] T017 [US2] `RegistrationsService.create`: rama `PER_GROUP` (tomar ciclo/sección del grupo, `CICLO COMPLETO`, asignar cupo, nómina con capitán y DNI+código)
-- [ ] T018 [US3] Cupo ≥ 2: crear `EXTRA` con tarifa adicional, o enlazar a `extraVoucherId` y recalcular monto; reintento ante `P2002`
-- [ ] T019 [US2] `reject`: liberar cupo (`slot = NULL`); `approve`: comprobar voucher que cubre al equipo y rechazar equipos `REJECTED`/`CANCELLED`
-- [ ] T020 [US2] Pruebas: 5 disciplinas con un solo voucher, nómina inválida, mismo alumno en varias disciplinas permitido, `groupId` ajeno, `maxTeams` y plazo
-- [ ] T021 [US3] Pruebas: segundo equipo exige voucher, monto 20/30, cupo por disciplina, cupo liberado tras rechazo, carrera simulada
+- [x] T016 [P] [US2] Ampliar `ParticipantDto` (`isCaptain`) y el parseo de `POST /registrations` (`groupId`, `extraVoucherId`)
+- [x] T017 [US2] `RegistrationsService.create`: rama `PER_GROUP` (tomar ciclo/sección del grupo, `CICLO COMPLETO`, asignar cupo, nómina con capitán y DNI+código)
+- [x] T018 [US3] Cupo ≥ 2: crear `EXTRA` con tarifa adicional, o enlazar a `extraVoucherId` y recalcular monto; reintento ante `P2002`
+- [x] T019 [US2] `reject`: liberar cupo (`slot = NULL`); `approve`: comprobar voucher que cubre al equipo y rechazar equipos `REJECTED`/`CANCELLED`
+- [x] T020 [US2] Pruebas: 5 disciplinas con un solo voucher, nómina inválida, mismo alumno en varias disciplinas permitido, `groupId` ajeno, `maxTeams` y plazo
+- [x] T021 [US3] Pruebas: segundo equipo exige voucher, monto 20/30, cupo por disciplina, cupo liberado tras rechazo, carrera simulada
 
 ## Phase 6: US4 + US5 - Validación en bloque y re-subida (P1/P2)
 

@@ -15,6 +15,7 @@ import {
   VoucherStatus,
 } from '@prisma/client';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
+import { prismaErrorCode } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import {
@@ -32,12 +33,6 @@ const STAFF_ROLES: Role[] = [Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM];
 
 function isStaff(actor: RequestUser): boolean {
   return STAFF_ROLES.includes(actor.role);
-}
-
-function errorCode(error: unknown): string | undefined {
-  return typeof error === 'object' && error !== null
-    ? (error as { code?: string }).code
-    : undefined;
 }
 
 export interface GroupListQuery {
@@ -182,7 +177,7 @@ export class GroupsService {
               select: { id: true },
             });
           } catch (error) {
-            if (errorCode(error) === 'P2002') {
+            if (prismaErrorCode(error) === 'P2002') {
               throw new ConflictException(
                 scope === GroupScope.CYCLE
                   ? 'Este ciclo ya está inscrito'
@@ -214,7 +209,7 @@ export class GroupsService {
       return await this.findDetail(groupId);
     } catch (error) {
       // P2034: conflicto de serialización (otra inscripción simultánea del mismo ciclo).
-      if (errorCode(error) === 'P2034') {
+      if (prismaErrorCode(error) === 'P2034') {
         throw new ConflictException(
           'Otra inscripción del mismo ciclo se está procesando; intenta nuevamente',
         );

@@ -3,6 +3,7 @@ import {
   GenderPolicy,
   ParticipantType,
   Prisma,
+  PricingMode,
   Role,
   VoucherStatus,
 } from '@prisma/client';
@@ -34,6 +35,12 @@ function buildService(options: { isPaid: boolean }) {
         isPaid: options.isPaid,
         cost: new Prisma.Decimal('50'),
         _count: { teams: 0 },
+        event: {
+          id: 1,
+          pricingMode: PricingMode.PER_DISCIPLINE,
+          isOpen: true,
+          pricing: null,
+        },
       }),
     },
     user: {
