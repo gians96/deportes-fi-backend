@@ -1,12 +1,80 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   GenderPolicy,
   ParticipantType,
   Prisma,
   RegistrationStatus,
+  Role,
+  VoucherKind,
   VoucherStatus,
 } from '@prisma/client';
+import type { RequestUser } from '../common/decorators/current-user.decorator';
+import { groupLabel } from '../groups/group-normalize';
+import { assertGroupRoster } from '../groups/group-roster';
 import { PrismaService } from '../prisma/prisma.service';
+
+const nameRef = { select: { id: true, name: true } } as const;
+
+/** Datos para listar un voucher; un voucher compartido trae todos los equipos que cubre. */
+const listInclude = {
+  group: {
+    include: {
+      school: nameRef,
+      event: {
+        select: { id: true, name: true, faculty: nameRef, school: nameRef },
+      },
+    },
+  },
+  teams: {
+    orderBy: { id: 'asc' },
+    select: {
+      id: true,
+      name: true,
+      cycle: true,
+      section: true,
+      phone: true,
+      slot: true,
+      status: true,
+      discipline: {
+        select: {
+          id: true,
+          name: true,
+          participantType: true,
+          minPlayers: true,
+          maxPlayers: true,
+          genderPolicy: true,
+          event: {
+            select: { id: true, name: true, faculty: nameRef, school: nameRef },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.VoucherInclude;
+
+const validateInclude = {
+  team: { include: { participants: true, discipline: true } },
+  teams: {
+    orderBy: { id: 'asc' },
+    include: { participants: true, discipline: true },
+  },
+} satisfies Prisma.VoucherInclude;
+
+type VoucherToValidate = Prisma.VoucherGetPayload<{
+  include: typeof validateInclude;
+}>;
+
+export interface SkippedTeam {
+  teamId: number;
+  reason: string;
+}
+
+const STAFF_ROLES: Role[] = [Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM];
 
 @Injectable()
 export class VouchersService {
@@ -34,87 +102,111 @@ export class VouchersService {
 
     const where: Prisma.VoucherWhereInput = {};
     if (filters?.status) where.status = filters.status;
-    if (Object.keys(teamWhere).length) where.team = teamWhere;
+    if (Object.keys(teamWhere).length) {
+      // Un voucher se ubica por los equipos que cubre; uno que todavía no cubre ninguno
+      // (pago base recién enviado), por su grupo.
+      const scopes: Prisma.VoucherWhereInput[] = [
+        { teams: { some: teamWhere } },
+      ];
+      if (!filters?.disciplineId) {
+        const groupWhere: Prisma.ClassGroupWhereInput = {};
+        if (filters?.eventId) groupWhere.eventId = filters.eventId;
+        if (Object.keys(eventWhere).length) groupWhere.event = eventWhere;
+        scopes.push({ group: groupWhere });
+      }
+      where.OR = scopes;
+    }
 
     const vouchers = await this.prisma.voucher.findMany({
       where,
-      include: {
-        team: {
-          select: {
-            id: true,
-            name: true,
-            cycle: true,
-            section: true,
-            phone: true,
-            participants: {
-              select: {
-                id: true,
-                fullName: true,
-                studentCode: true,
-                dni: true,
-                gender: true,
-                isDelegate: true,
-                countsAsPlayer: true,
-                userId: true,
-              },
-            },
-            discipline: {
-              select: {
-                id: true,
-                name: true,
-                participantType: true,
-                minPlayers: true,
-                maxPlayers: true,
-                genderPolicy: true,
-                event: {
-                  select: {
-                    id: true,
-                    name: true,
-                    faculty: { select: { id: true, name: true } },
-                    school: { select: { id: true, name: true } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      include: listInclude,
       orderBy: { uploadedAt: 'desc' },
     });
-    // BASE/EXTRA no tienen un equipo propio: los muestra el panel por grupo (spec 002, US4).
-    const withTeam = vouchers.filter(
-      (v): v is typeof v & { team: NonNullable<typeof v.team> } =>
-        v.team !== null,
+
+    // Los integrantes se leen solo del equipo principal de cada voucher (forma histórica).
+    const primaryTeamIds = vouchers.flatMap((v) =>
+      v.teams[0] ? [v.teams[0].id] : [],
     );
-    return withTeam.map((v) => ({
-      id: v.id,
-      teamId: v.teamId,
-      teamName: v.team.name,
-      cycle: v.team.cycle,
-      section: v.team.section,
-      phone: v.team.phone,
-      operationNumber: v.operationNumber ?? '',
-      amount: Number(v.amount),
-      imageUrl: v.imageUrl,
-      status: v.status,
-      rejectionReason: v.rejectionReason,
-      uploadedAt: v.uploadedAt,
-      disciplineName: v.team.discipline.name,
-      participantType: v.team.discipline.participantType,
-      minPlayers: v.team.discipline.minPlayers,
-      maxPlayers: v.team.discipline.maxPlayers,
-      genderPolicy: v.team.discipline.genderPolicy,
-      eventName: v.team.discipline.event.name,
-      facultyName: v.team.discipline.event.faculty?.name ?? '',
-      schoolName: v.team.discipline.event.school?.name ?? '',
-      participantsCount: v.team.participants.length,
-      participants: v.team.participants,
-    }));
+    const participants = primaryTeamIds.length
+      ? await this.prisma.participant.findMany({
+          where: { teamId: { in: primaryTeamIds } },
+          select: {
+            id: true,
+            teamId: true,
+            fullName: true,
+            studentCode: true,
+            dni: true,
+            gender: true,
+            isDelegate: true,
+            countsAsPlayer: true,
+            userId: true,
+          },
+        })
+      : [];
+
+    return vouchers.map((v) => {
+      const team = v.teams[0] ?? null;
+      const event = team?.discipline.event ?? v.group?.event ?? null;
+      const teamParticipants = team
+        ? participants
+            .filter((p) => p.teamId === team.id)
+            .map((p) => ({
+              id: p.id,
+              fullName: p.fullName,
+              studentCode: p.studentCode,
+              dni: p.dni,
+              gender: p.gender,
+              isDelegate: p.isDelegate,
+              countsAsPlayer: p.countsAsPlayer,
+              userId: p.userId,
+            }))
+        : [];
+      return {
+        id: v.id,
+        kind: v.kind,
+        groupId: v.groupId,
+        groupLabel: v.group
+          ? groupLabel(
+              v.group.school.name,
+              v.group.scope,
+              v.group.cycle,
+              v.group.section,
+            )
+          : null,
+        teamId: team?.id ?? null,
+        teamName: team?.name ?? '',
+        cycle: team ? team.cycle : (v.group?.cycle ?? null),
+        section: team ? team.section : (v.group?.section ?? null),
+        phone: team?.phone ?? null,
+        operationNumber: v.operationNumber ?? '',
+        amount: Number(v.amount),
+        imageUrl: v.imageUrl,
+        status: v.status,
+        rejectionReason: v.rejectionReason,
+        uploadedAt: v.uploadedAt,
+        disciplineName: team?.discipline.name ?? '',
+        participantType:
+          team?.discipline.participantType ?? ParticipantType.STUDENT,
+        minPlayers: team?.discipline.minPlayers ?? null,
+        maxPlayers: team?.discipline.maxPlayers ?? null,
+        genderPolicy: team?.discipline.genderPolicy ?? null,
+        eventName: event?.name ?? '',
+        facultyName: event?.faculty?.name ?? '',
+        schoolName: event?.school?.name ?? '',
+        participantsCount: teamParticipants.length,
+        participants: teamParticipants,
+        teams: v.teams.map((t) => ({
+          id: t.id,
+          name: t.name,
+          disciplineName: t.discipline.name,
+          slot: t.slot,
+          status: t.status,
+        })),
+      };
+    });
   }
 
-  private countedParticipants(
-    participants: { countsAsPlayer: boolean }[],
-  ) {
+  private countedParticipants(participants: { countsAsPlayer: boolean }[]) {
     return participants.length;
   }
 
@@ -164,7 +256,10 @@ export class VouchersService {
       );
     }
 
-    if (count < team.discipline.minPlayers || count > team.discipline.maxPlayers) {
+    if (
+      count < team.discipline.minPlayers ||
+      count > team.discipline.maxPlayers
+    ) {
       throw new BadRequestException(
         `El equipo debe tener entre ${team.discipline.minPlayers} y ${team.discipline.maxPlayers} jugadores. Tiene ${count}.`,
       );
@@ -188,19 +283,22 @@ export class VouchersService {
   async validate(id: number, validatedById: number) {
     const voucher = await this.prisma.voucher.findUnique({
       where: { id },
-      include: {
-        team: {
-          include: {
-            participants: true,
-            discipline: true,
-          },
-        },
-      },
+      include: validateInclude,
     });
     if (!voucher) throw new NotFoundException('Comprobante no encontrado');
+
+    return voucher.kind === VoucherKind.TEAM
+      ? this.validateTeamVoucher(voucher, validatedById)
+      : this.validateGroupVoucher(voucher, validatedById);
+  }
+
+  /** Voucher de un solo equipo (flujo por disciplina): comportamiento histórico. */
+  private async validateTeamVoucher(
+    voucher: VoucherToValidate,
+    validatedById: number,
+  ) {
     const team = voucher.team;
     if (!team) {
-      // BASE/EXTRA: la validación en bloque llega con la spec 002 (US4).
       throw new BadRequestException(
         'Este comprobante no corresponde a un solo equipo',
       );
@@ -209,7 +307,7 @@ export class VouchersService {
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.voucher.update({
-        where: { id },
+        where: { id: voucher.id },
         data: { status: VoucherStatus.VALIDATED, validatedById },
       });
       await tx.team.update({
@@ -220,16 +318,135 @@ export class VouchersService {
     });
   }
 
+  /**
+   * Voucher BASE o EXTRA: valida el pago una sola vez y aprueba los equipos que cubre y que
+   * cumplen las reglas; los demás quedan PENDING y se informan en `skipped`. Validar de nuevo
+   * un comprobante ya validado aprueba los equipos pendientes que ahora sí cumplan.
+   */
+  private async validateGroupVoucher(
+    voucher: VoucherToValidate,
+    validatedById: number,
+  ) {
+    if (voucher.teams.length === 0) {
+      throw new BadRequestException(
+        voucher.kind === VoucherKind.BASE
+          ? 'El salón aún no registra equipos'
+          : 'El comprobante adicional aún no cubre ningún equipo',
+      );
+    }
+
+    const approvedTeamIds: number[] = [];
+    const skipped: SkippedTeam[] = [];
+    for (const team of voucher.teams) {
+      if (team.status !== RegistrationStatus.PENDING) continue;
+      try {
+        this.validateTeamRules(team);
+        assertGroupRoster(team.participants);
+        approvedTeamIds.push(team.id);
+      } catch (error) {
+        skipped.push({
+          teamId: team.id,
+          reason:
+            error instanceof Error
+              ? error.message
+              : 'El equipo no cumple las reglas',
+        });
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.voucher.update({
+        where: { id: voucher.id },
+        data: {
+          status: VoucherStatus.VALIDATED,
+          validatedById,
+          rejectionReason: null,
+        },
+      });
+      if (approvedTeamIds.length) {
+        await tx.team.updateMany({
+          where: {
+            id: { in: approvedTeamIds },
+            status: RegistrationStatus.PENDING,
+          },
+          data: { status: RegistrationStatus.APPROVED, rejectionReason: null },
+        });
+      }
+      return result;
+    });
+
+    return { ...updated, approvedTeamIds, skipped };
+  }
+
   async reject(id: number, reason: string, validatedById: number) {
     const voucher = await this.prisma.voucher.findUnique({ where: { id } });
     if (!voucher) throw new NotFoundException('Comprobante no encontrado');
 
+    const data = {
+      status: VoucherStatus.REJECTED,
+      rejectionReason: reason,
+      validatedById,
+    };
+    if (voucher.kind === VoucherKind.TEAM) {
+      return this.prisma.voucher.update({ where: { id }, data });
+    }
+
+    // BASE/EXTRA: los equipos aprobados gracias a este pago vuelven a PENDING.
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.voucher.update({ where: { id }, data });
+      await tx.team.updateMany({
+        where: { voucherId: id, status: RegistrationStatus.APPROVED },
+        data: { status: RegistrationStatus.PENDING },
+      });
+      return updated;
+    });
+  }
+
+  /**
+   * Reemplaza el comprobante rechazado (nueva imagen y N.º de operación) sin recrear el grupo ni
+   * los equipos: el voucher conserva su `id` y los equipos que cubre. Lo puede hacer el delegado
+   * del grupo (o del equipo, en el flujo por disciplina) o el staff.
+   */
+  async replace(
+    actor: RequestUser,
+    id: number,
+    voucherPath: string | undefined,
+    operationNumber?: string,
+  ) {
+    if (!voucherPath) {
+      throw new BadRequestException('Adjunta la nueva imagen del comprobante');
+    }
+    const voucher = await this.prisma.voucher.findUnique({
+      where: { id },
+      include: {
+        team: { select: { delegateId: true } },
+        group: { select: { delegateId: true } },
+      },
+    });
+    if (!voucher) throw new NotFoundException('Comprobante no encontrado');
+
+    const isStaff = STAFF_ROLES.includes(actor.role);
+    const ownerId =
+      voucher.kind === VoucherKind.TEAM
+        ? voucher.team?.delegateId
+        : voucher.group?.delegateId;
+    if (!isStaff && ownerId !== actor.id) {
+      throw new ForbiddenException('No puedes reemplazar este comprobante');
+    }
+    if (voucher.status !== VoucherStatus.REJECTED) {
+      throw new BadRequestException(
+        'Solo se puede reemplazar un comprobante rechazado',
+      );
+    }
+
     return this.prisma.voucher.update({
       where: { id },
       data: {
-        status: VoucherStatus.REJECTED,
-        rejectionReason: reason,
-        validatedById,
+        imageUrl: voucherPath,
+        operationNumber: operationNumber?.trim() || null,
+        status: VoucherStatus.PENDING,
+        rejectionReason: null,
+        validatedById: null,
       },
     });
   }

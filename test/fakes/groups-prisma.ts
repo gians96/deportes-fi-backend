@@ -95,6 +95,7 @@ export interface FakeGroupVoucherRow {
   status: VoucherStatus;
   rejectionReason: string | null;
   validatedById: number | null;
+  uploadedAt?: Date;
 }
 
 export interface FakeParticipantRow {
@@ -399,6 +400,22 @@ export class GroupsPrisma {
         discipline: discipline ? { ...discipline } : null,
       });
     },
+    updateMany: ({
+      where,
+      data,
+    }: {
+      where: { id?: { in: number[] }; voucherId?: number; status?: string };
+      data: Partial<FakeGroupTeamRow>;
+    }) => {
+      const targets = this.data.teams.filter(
+        (t) =>
+          (where.id === undefined || where.id.in.includes(t.id)) &&
+          (where.voucherId === undefined || t.voucherId === where.voucherId) &&
+          (where.status === undefined || t.status === where.status),
+      );
+      for (const team of targets) Object.assign(team, data);
+      return Promise.resolve({ count: targets.length });
+    },
     update: ({
       where,
       data,
@@ -408,6 +425,21 @@ export class GroupsPrisma {
       Object.assign(team, data);
       return Promise.resolve({ ...team });
     },
+  };
+
+  readonly participant = {
+    findMany: ({ where }: { where: { teamId: { in: number[] } } }) =>
+      Promise.resolve(
+        this.data.teams
+          .filter((t) => where.teamId.in.includes(t.id))
+          .flatMap((t) =>
+            (t.participants ?? []).map((p, index) => ({
+              ...p,
+              id: t.id * 1000 + index,
+              teamId: t.id,
+            })),
+          ),
+      ),
   };
 
   readonly voucher = {
@@ -448,8 +480,27 @@ export class GroupsPrisma {
             (t) => t.voucherId === voucher.id && t.slot !== null,
           ).length,
         },
+        team: this.teamWithRelations(
+          this.data.teams.find((t) => t.id === voucher.teamId),
+        ),
+        teams: this.data.teams
+          .filter((t) => t.voucherId === voucher.id)
+          .sort((a, b) => a.id - b.id)
+          .map((t) => this.teamWithRelations(t)),
+        group: this.data.groups.find((g) => g.id === voucher.groupId) ?? null,
       });
     },
+    findMany: ({ where }: { where: Row }) =>
+      Promise.resolve(
+        this.data.vouchers
+          .filter((v) => this.voucherMatches(v, where))
+          .sort(
+            (a, b) =>
+              (b.uploadedAt?.getTime() ?? 0) - (a.uploadedAt?.getTime() ?? 0) ||
+              b.id - a.id,
+          )
+          .map((v) => this.voucherListRow(v)),
+      ),
     update: ({
       where,
       data,
@@ -512,6 +563,151 @@ export class GroupsPrisma {
       return current;
     });
     live.splice(0, live.length, ...restored);
+  }
+
+  private teamWithRelations(team: FakeGroupTeamRow | undefined) {
+    if (!team) return null;
+    const discipline = this.data.events
+      .flatMap((e) => e.disciplines)
+      .find((d) => d.id === team.disciplineId);
+    return {
+      ...team,
+      participants: (team.participants ?? []).map((p) => ({ ...p })),
+      discipline: discipline ? { ...discipline } : null,
+    };
+  }
+
+  private schoolRef(id: number) {
+    const school = this.data.schools.find((s) => s.id === id);
+    return { id, name: school?.name ?? '' };
+  }
+
+  private eventRef(eventId: number) {
+    const event = this.data.events.find((e) => e.id === eventId);
+    return {
+      id: eventId,
+      name: event?.name ?? '',
+      faculty: { id: event?.facultyId ?? 0, name: 'Facultad de Ingeniería' },
+      school: event?.schoolId ? this.schoolRef(event.schoolId) : null,
+    };
+  }
+
+  private disciplineView(disciplineId: number) {
+    const discipline = this.data.events
+      .flatMap((e) => e.disciplines)
+      .find((d) => d.id === disciplineId);
+    return {
+      id: disciplineId,
+      name: discipline?.name ?? '',
+      participantType: discipline?.participantType ?? ParticipantType.STUDENT,
+      minPlayers: discipline?.minPlayers ?? 0,
+      maxPlayers: discipline?.maxPlayers ?? 0,
+      genderPolicy: discipline?.genderPolicy ?? GenderPolicy.FREE,
+      event: this.eventRef(discipline?.eventId ?? 0),
+    };
+  }
+
+  private voucherListRow(voucher: FakeGroupVoucherRow) {
+    const group = this.data.groups.find((g) => g.id === voucher.groupId);
+    return {
+      ...voucher,
+      uploadedAt: voucher.uploadedAt ?? new Date(0),
+      group: group
+        ? {
+            ...group,
+            school: this.schoolRef(group.schoolId),
+            event: this.eventRef(group.eventId),
+          }
+        : null,
+      teams: this.data.teams
+        .filter((t) => t.voucherId === voucher.id)
+        .sort((a, b) => a.id - b.id)
+        .map((t) => ({
+          id: t.id,
+          name: t.name,
+          cycle: t.cycle ?? null,
+          section: t.section ?? null,
+          phone: t.phone ?? null,
+          slot: t.slot,
+          status: t.status,
+          discipline: this.disciplineView(t.disciplineId),
+        })),
+    };
+  }
+
+  private voucherMatches(voucher: FakeGroupVoucherRow, where: Row): boolean {
+    for (const [key, expected] of Object.entries(where)) {
+      if (key === 'status') {
+        if (voucher.status !== expected) return false;
+      } else if (key === 'OR') {
+        const clauses = expected as Row[];
+        if (!clauses.some((clause) => this.voucherClause(voucher, clause))) {
+          return false;
+        }
+      } else {
+        throw new Error(`voucher.findMany: filtro no soportado "${key}"`);
+      }
+    }
+    return true;
+  }
+
+  private voucherClause(voucher: FakeGroupVoucherRow, clause: Row): boolean {
+    if ('teams' in clause) {
+      const teamWhere = (clause.teams as { some: Row }).some;
+      return this.data.teams.some(
+        (t) => t.voucherId === voucher.id && this.teamMatches(t, teamWhere),
+      );
+    }
+    if ('group' in clause) {
+      const group = this.data.groups.find((g) => g.id === voucher.groupId);
+      if (!group) return false;
+      const groupWhere = clause.group as Row;
+      return Object.entries(groupWhere).every(([key, expected]) => {
+        if (key === 'eventId') return group.eventId === expected;
+        if (key === 'event')
+          return this.eventMatches(group.eventId, expected as Row);
+        throw new Error(
+          `voucher.findMany: filtro de grupo no soportado "${key}"`,
+        );
+      });
+    }
+    throw new Error('voucher.findMany: cláusula OR no soportada');
+  }
+
+  private teamMatches(team: FakeGroupTeamRow, where: Row): boolean {
+    return Object.entries(where).every(([key, expected]) => {
+      if (key === 'disciplineId') return team.disciplineId === expected;
+      if (key === 'discipline') {
+        const discipline = this.data.events
+          .flatMap((e) => e.disciplines)
+          .find((d) => d.id === team.disciplineId);
+        if (!discipline) return false;
+        return Object.entries(expected as Row).every(([dKey, dExpected]) => {
+          if (dKey === 'eventId') return discipline.eventId === dExpected;
+          if (dKey === 'event') {
+            return this.eventMatches(discipline.eventId, dExpected as Row);
+          }
+          throw new Error(
+            `voucher.findMany: filtro de disciplina no soportado "${dKey}"`,
+          );
+        });
+      }
+      throw new Error(
+        `voucher.findMany: filtro de equipo no soportado "${key}"`,
+      );
+    });
+  }
+
+  private eventMatches(eventId: number, filter: Row): boolean {
+    const event = this.data.events.find((e) => e.id === eventId);
+    if (!event) return false;
+    return Object.entries(filter).every(([key, expected]) => {
+      if (key === 'facultyId') return event.facultyId === expected;
+      if (key === 'schoolId') return event.schoolId === expected;
+      throw new Error(
+        `voucher.findMany: filtro de evento no soportado "${key}"`,
+      );
+    });
   }
 
   private matches(group: FakeGroupRow, filters: Row): boolean {

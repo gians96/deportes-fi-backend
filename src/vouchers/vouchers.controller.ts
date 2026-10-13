@@ -6,10 +6,16 @@ import {
   ParseIntPipe,
   Patch,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role, VoucherStatus } from '@prisma/client';
+import { unlink } from 'node:fs/promises';
 import { VouchersService } from './vouchers.service';
+import { ReplaceVoucherDto } from './dto/replace-voucher.dto';
+import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { RejectDto } from '../registrations/dto/reject.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -57,5 +63,33 @@ export class VouchersController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.vouchers.reject(id, dto.reason, user.id);
+  }
+
+  /**
+   * Reemplaza un comprobante rechazado. Lo usa el delegado del grupo o del equipo (el servicio
+   * comprueba que sea el responsable), por eso el rol exigido es más amplio que el del resto.
+   */
+  @Roles(Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM, Role.STUDENT, Role.OTHER)
+  @Patch(':id/replace')
+  @UseInterceptors(FileInterceptor('voucher', voucherMulterOptions))
+  async replace(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReplaceVoucherDto,
+    @CurrentUser() user: RequestUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    const voucherPath = file ? `/uploads/vouchers/${file.filename}` : undefined;
+    try {
+      return await this.vouchers.replace(
+        user,
+        id,
+        voucherPath,
+        dto.operationNumber,
+      );
+    } catch (error) {
+      // Si no se pudo reemplazar, no se deja la imagen nueva huérfana en disco.
+      if (file) await unlink(file.path).catch(() => undefined);
+      throw error;
+    }
   }
 }

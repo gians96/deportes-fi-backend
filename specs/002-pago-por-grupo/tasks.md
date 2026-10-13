@@ -61,11 +61,11 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 6: US4 + US5 - Validación en bloque y re-subida (P1/P2)
 
-- [ ] T022 [US4] `VouchersService.validate`: ramas `TEAM` (igual que hoy) y `BASE`/`EXTRA` (transacción, aprobar equipos válidos, `approvedTeamIds`/`skipped`, 400 sin equipos)
-- [ ] T023 [US4] `VouchersService.reject`: devolver a `PENDING` los equipos `APPROVED` dependientes
-- [ ] T024 [US4] `VouchersService.findAll`: usar `voucher.teams`, agregar `kind`, `groupId`, `groupLabel`, `teams[]`
-- [ ] T025 [US5] `PATCH /vouchers/:id/replace` (permisos, solo `REJECTED`, mismo `id`)
-- [ ] T026 [US4] Pruebas: bloque con equipos válidos e inválidos, rechazo, `TEAM` sin cambios (regresión), replace con permisos
+- [x] T022 [US4] `VouchersService.validate`: ramas `TEAM` (igual que hoy) y `BASE`/`EXTRA` (transacción, aprobar equipos válidos, `approvedTeamIds`/`skipped`, 400 sin equipos)
+- [x] T023 [US4] `VouchersService.reject`: devolver a `PENDING` los equipos `APPROVED` dependientes
+- [x] T024 [US4] `VouchersService.findAll`: usar `voucher.teams`, agregar `kind`, `groupId`, `groupLabel`, `teams[]`
+- [x] T025 [US5] `PATCH /vouchers/:id/replace` (permisos, solo `REJECTED`, mismo `id`)
+- [x] T026 [US4] Pruebas: bloque con equipos válidos e inválidos, rechazo, `TEAM` sin cambios (regresión), replace con permisos
 
 ## Phase 7: US6 - Contrato 2 (P1)
 
