@@ -292,9 +292,11 @@ export class IntegrationsService {
         operationNumber: voucher.operationNumber,
         uploadedAt: voucher.uploadedAt,
         updatedAt: voucher.updatedAt,
-        teamName: voucher.team.name,
-        disciplineName: voucher.team.discipline.name,
-        participantType: voucher.team.discipline.participantType,
+        // El filtro exige un equipo; los vouchers de grupo se incorporan en la spec 002 (US6).
+        teamName: voucher.team?.name ?? '',
+        disciplineName: voucher.team?.discipline.name ?? '',
+        participantType:
+          voucher.team?.discipline.participantType ?? ParticipantType.STUDENT,
       })),
       meta: { page, pageSize, total },
     };

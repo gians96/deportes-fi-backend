@@ -30,7 +30,8 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 - [ ] T005 (pendiente: requiere MariaDB Docker) Verificar en una BD *shadow* local que migraciones + la nueva vs. esquema solo dejan la deriva previa
 - [x] T006 [P] `src/groups/group-normalize.ts` (`normalizeCycle`, `normalizeSection`, `groupLabel`) + `group-normalize.spec.ts` (5/V/ciclo V/v ciclo, A-1/a 1/sección A1, vacíos, fuera de I–XII)
 - [x] T007 [P] `src/groups/group-pricing.ts` (`baseFee`, `extraFee`, `allocateCents`) + `group-pricing.spec.ts` (suma exacta n=1..7, centavos, monto 0)
-- [ ] T008 (se hace al empezar los servicios, para no dejar el build roto entre fases) Regenerar el cliente (`bunx prisma generate`) y ajustar tipos que usaban `voucher.team` singular
+- [x] T008 (se hace al empezar los servicios, para no dejar el build roto entre fases) Regenerar el cliente (`bunx prisma generate`) y ajustar tipos que usaban `voucher.team` singular
+- [x] T008b Compatibilidad tras regenerar: `voucher.team` opcional en `vouchers`/`integrations` y doble escritura de `Team.voucherId` en el registro por disciplina, con `registrations.service.spec.ts`
 
 **Checkpoint**: esquema, migración y núcleo puro listos.
 
@@ -38,16 +39,16 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 3: US7 - Tarifas del evento (P2)
 
-- [ ] T009 [P] [US7] DTO `src/events/dto/update-pricing.dto.ts` (modo, 4 tarifas ≥ 0 con 2 decimales)
-- [ ] T010 [US7] `EventsService.getPricing/setPricing` y rutas `GET/PUT /events/:eventId/pricing`
-- [ ] T011 [US7] Pruebas: valores por defecto, 400 al volver a `PER_DISCIPLINE` con grupos, tarifas inválidas
+- [x] T009 [P] [US7] DTO `src/events/dto/update-pricing.dto.ts` (modo, 4 tarifas ≥ 0 con 2 decimales)
+- [x] T010 [US7] `EventPricingService.getPricing/setPricing` (servicio propio en `src/events/event-pricing.service.ts`) y rutas `GET/PUT /events/:eventId/pricing`
+- [x] T011 [US7] Pruebas: valores por defecto, 400 al volver a `PER_DISCIPLINE` con grupos, tarifas inválidas
 
 ## Phase 4: US1 - Crear grupo con pago base (P1) 🎯 MVP
 
-- [ ] T012 [P] [US1] DTO `src/groups/dto/create-group.dto.ts`
-- [ ] T013 [US1] `GroupsService.create` en transacción: validar evento `PER_GROUP` y abierto, normalizar, exclusión ciclo/sección, crear grupo + voucher `BASE`, capturar `P2002` → 409
-- [ ] T014 [US1] `GroupsController` (`POST /groups` multipart con `voucherMulterOptions`, `GET /groups/mine`, `GET /groups/:id`, `GET /groups`) y `GroupsModule` registrado en `src/app.module.ts`
-- [ ] T015 [US1] Pruebas: monto 100/150, 409 duplicado normalizado, exclusión en ambos sentidos, evento no `PER_GROUP`, grupo con base rechazado y sin equipos activos no cuenta
+- [x] T012 [P] [US1] DTO `src/groups/dto/create-group.dto.ts`
+- [x] T013 [US1] `GroupsService.create` en transacción: validar evento `PER_GROUP` y abierto, normalizar, exclusión ciclo/sección, crear grupo + voucher `BASE`, capturar `P2002` → 409
+- [x] T014 [US1] `GroupsController` (`POST /groups` multipart con `voucherMulterOptions`, `GET /groups/mine`, `GET /groups/:id`, `GET /groups`) y `GroupsModule` registrado en `src/app.module.ts`
+- [x] T015 [US1] Pruebas: monto 100/150, 409 duplicado normalizado, exclusión en ambos sentidos, evento no `PER_GROUP`, grupo con base rechazado y sin equipos activos no cuenta
 
 ## Phase 5: US2 + US3 - Equipos con cupos y adicionales (P1)
 

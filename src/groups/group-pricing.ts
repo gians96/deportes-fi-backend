@@ -39,6 +39,11 @@ export function fromCents(cents: number): Prisma.Decimal {
   return new Prisma.Decimal(cents).div(100);
 }
 
+/** Monto en soles como número de hasta 2 decimales, igual que el Contrato 2. */
+export function toMoneyNumber(amount: Money): number {
+  return Number(new Prisma.Decimal(amount).toFixed(2));
+}
+
 /**
  * Reparte `totalCents` entre `parts` equipos sin perder centavos: la suma de las partes es
  * exactamente `totalCents`. El resto se entrega de uno en uno a las primeras partes (el llamador

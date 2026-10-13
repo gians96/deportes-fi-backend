@@ -369,7 +369,7 @@ export class RegistrationsService {
       });
 
       if (discipline.isPaid && voucherPath) {
-        await tx.voucher.create({
+        const voucher = await tx.voucher.create({
           data: {
             teamId: team.id,
             operationNumber: dto.operationNumber ?? null,
@@ -377,6 +377,11 @@ export class RegistrationsService {
             imageUrl: voucherPath,
             status: VoucherStatus.PENDING,
           },
+        });
+        // Doble escritura de transición (spec 002): el equipo apunta a su voucher.
+        await tx.team.update({
+          where: { id: team.id },
+          data: { voucherId: voucher.id },
         });
       }
 

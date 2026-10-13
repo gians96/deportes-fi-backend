@@ -81,7 +81,12 @@ export class VouchersService {
       },
       orderBy: { uploadedAt: 'desc' },
     });
-    return vouchers.map((v) => ({
+    // BASE/EXTRA no tienen un equipo propio: los muestra el panel por grupo (spec 002, US4).
+    const withTeam = vouchers.filter(
+      (v): v is typeof v & { team: NonNullable<typeof v.team> } =>
+        v.team !== null,
+    );
+    return withTeam.map((v) => ({
       id: v.id,
       teamId: v.teamId,
       teamName: v.team.name,
@@ -193,7 +198,14 @@ export class VouchersService {
       },
     });
     if (!voucher) throw new NotFoundException('Comprobante no encontrado');
-    this.validateTeamRules(voucher.team);
+    const team = voucher.team;
+    if (!team) {
+      // BASE/EXTRA: la validación en bloque llega con la spec 002 (US4).
+      throw new BadRequestException(
+        'Este comprobante no corresponde a un solo equipo',
+      );
+    }
+    this.validateTeamRules(team);
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.voucher.update({
@@ -201,7 +213,7 @@ export class VouchersService {
         data: { status: VoucherStatus.VALIDATED, validatedById },
       });
       await tx.team.update({
-        where: { id: voucher.teamId },
+        where: { id: team.id },
         data: { status: RegistrationStatus.APPROVED },
       });
       return updated;
