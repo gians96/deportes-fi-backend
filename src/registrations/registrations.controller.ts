@@ -28,6 +28,7 @@ import {
   CurrentUser,
 } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
+import { PAYMENT_ROLES, isStaffRole } from '../common/roles';
 
 function optionalId(value: string | undefined, name: string) {
   if (value === undefined || value === '') return undefined;
@@ -43,7 +44,7 @@ export class RegistrationsController {
   constructor(private readonly registrations: RegistrationsService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM)
+  @Roles(...PAYMENT_ROLES)
   @Get()
   findAll(
     @Query('status') status?: RegistrationStatus,
@@ -99,8 +100,7 @@ export class RegistrationsController {
     };
 
     // Solo owner/admin pueden registrar un equipo en nombre de otro delegado.
-    const isStaff =
-      user.role === Role.OWNER_SYSTEM || user.role === Role.ADMIN_SYSTEM;
+    const isStaff = isStaffRole(user.role);
     const delegateId =
       isStaff && body.delegateId ? Number(body.delegateId) : undefined;
 

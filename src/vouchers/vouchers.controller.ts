@@ -19,6 +19,7 @@ import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { RejectDto } from '../registrations/dto/reject.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PAYMENT_ROLES } from '../common/roles';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
   CurrentUser,
@@ -26,7 +27,7 @@ import {
 import type { RequestUser } from '../common/decorators/current-user.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM)
+@Roles(...PAYMENT_ROLES)
 @Controller('vouchers')
 export class VouchersController {
   constructor(private readonly vouchers: VouchersService) {}

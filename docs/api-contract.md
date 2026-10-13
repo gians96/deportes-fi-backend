@@ -3,13 +3,14 @@
 - **Base URL**: `http://localhost:3001/api/v1` (local) · `https://<host>/api/v1` (prod)
 - **Formato**: JSON salvo `POST /registrations` que es `multipart/form-data`.
 - **Auth**: header `Authorization: Bearer <jwt>`. El token se obtiene en
-  `POST /auth/google`.
-- **Roles**: `OWNER_SYSTEM`, `ADMIN_SYSTEM`, `REFEREE`, `STUDENT`, `OTHER`.
+  `POST /auth/google` o, para cuentas con contraseña, en `POST /auth/login`.
+- **Roles**: `OWNER_SYSTEM`, `ADMIN_SYSTEM`, `TREASURER`, `REFEREE`, `STUDENT`, `OTHER`.
 
 Notación de la columna *Auth*:
 - `público` — sin token.
 - `auth` — cualquier usuario autenticado.
 - `admin` — solo `OWNER_SYSTEM` o `ADMIN_SYSTEM`.
+- `pagos` — `OWNER_SYSTEM`, `ADMIN_SYSTEM` o `TREASURER` (ve y valida pagos; ver spec 004).
 - `fixture` — `OWNER_SYSTEM`, `ADMIN_SYSTEM` o `REFEREE`.
 - `token de evento` — header `X-Api-Key: dfi_<token>` (servidor a servidor, sin
   JWT). Ver [Integración por evento](#integración-por-evento-contrato-2).
@@ -38,6 +39,19 @@ correos son `OTHER`. En el login se **vinculan** los
 }
 ```
 Errores: `401` token inválido o correo Google no verificado.
+
+### `POST /auth/login` — `público`
+Inicia sesión con correo y contraseña. Solo para cuentas a las que un Owner/Administrador les
+asignó contraseña («Contraseña o Google», spec 004); las demás entran únicamente con Google.
+```json
+{ "email": "alumno@example.com", "password": "********" }
+```
+Responde igual que `POST /auth/google` (`{ token, user }`). El JWT lleva `tv` (versión de credenciales):
+cambiar o quitar la contraseña invalida las sesiones anteriores.
+
+Errores: `401 "Credenciales incorrectas"` **siempre igual** (correo inexistente, cuenta sin contraseña,
+inactiva o contraseña errónea). `429` tras 5 fallos por IP y correo en 15 minutos (o 20 por correo
+desde cualquier IP); un acceso correcto reinicia el contador.
 
 ### Rate limit global
 
@@ -258,7 +272,7 @@ el token en claro se devuelve **una única vez** al crearlo.
 
 | Método | Ruta                         | Auth  | Notas |
 | ------ | ---------------------------- | ----- | ----- |
-| GET    | `/registrations?status=`     | admin | `status` ∈ `PENDING\|APPROVED\|REJECTED\|CANCELLED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=&isPaid=&participantType=` |
+| GET    | `/registrations?status=`     | pagos | `status` ∈ `PENDING\|APPROVED\|REJECTED\|CANCELLED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=&isPaid=&participantType=` |
 | GET    | `/registrations/mine`        | auth  | Equipos donde el usuario es **delegado o integrante** (match por `userId`) |
 | POST   | `/registrations`             | auth  | **multipart/form-data** ver ↓ |
 | PATCH  | `/registrations/:id/approve` | admin | |
@@ -337,8 +351,8 @@ Un grupo es único por evento + escuela + alcance + ciclo + sección.
 | ------ | -------------------- | ----- | ----- |
 | POST   | `/groups`            | auth (estudiante o admin) | **multipart/form-data**; crea el grupo y su voucher base |
 | GET    | `/groups/mine`       | auth  | Grupos del usuario (delegado); `?eventId=` |
-| GET    | `/groups/:id`        | delegado o admin | Detalle |
-| GET    | `/groups`            | admin | `?eventId=` (obligatorio) `&schoolId=&cycle=&status=` (estado del voucher base) |
+| GET    | `/groups/:id`        | delegado o pagos | Detalle |
+| GET    | `/groups`            | pagos | `?eventId=` (obligatorio) `&schoolId=&cycle=&status=` (estado del voucher base) |
 
 `POST /groups`: `eventId`, `scope` (`SECTION`|`CYCLE`), `schoolId`, `cycle`, `section`
 (obligatoria para un salón, ignorada para un ciclo), `operationNumber`, `delegateId` (solo admin) y
@@ -375,9 +389,9 @@ Reglas y errores de `POST /groups`:
 
 | Método | Ruta                      | Auth  | Body |
 | ------ | ------------------------- | ----- | ---- |
-| GET    | `/vouchers?status=`       | admin | `status` ∈ `PENDING\|VALIDATED\|REJECTED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=` |
-| PATCH  | `/vouchers/:id/validate`  | admin | — |
-| PATCH  | `/vouchers/:id/reject`    | admin | `{ "reason": "…" }` |
+| GET    | `/vouchers?status=`       | pagos | `status` ∈ `PENDING\|VALIDATED\|REJECTED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=` |
+| PATCH  | `/vouchers/:id/validate`  | pagos | — |
+| PATCH  | `/vouchers/:id/reject`    | pagos | `{ "reason": "…" }` |
 | PATCH  | `/vouchers/:id/replace`   | delegado del grupo/equipo o admin | **multipart**: `voucher` (imagen) y `operationNumber`; solo si está `REJECTED` |
 
 Cada elemento de la lista incluye datos del equipo y de la disciplina para la
@@ -407,20 +421,25 @@ históricos describen el primer equipo (vacíos si todavía no cubre ninguno).
 
 | Método | Ruta                  | Auth  | Notas |
 | ------ | --------------------- | ----- | ----- |
-| GET    | `/users`              | admin | Incluye `isActive`, `dni`, facultad/escuela |
-| POST   | `/users`              | admin | Pre-registro por correo (ver ↓) |
+| GET    | `/users`              | admin | Incluye `isActive`, `dni`, facultad/escuela, `hasPassword` y `googleLinked` (nunca el hash) |
+| POST   | `/users`              | admin | Alta por correo, con contraseña opcional (ver ↓) |
 | PATCH  | `/users/:id`          | admin | `{ fullName?, email?, dni?, facultyId?, schoolId? }` |
 | PATCH  | `/users/:id/active`   | admin | `{ "isActive": false }` |
-| PATCH  | `/users/:id/role`     | admin | `{ "role": "STUDENT" }`, `{ "role": "OTHER" }` o `{ "role": "REFEREE" }` |
+| PATCH  | `/users/:id/password` | admin | `{ "password": "…" }` (10–128 caracteres) o `{ "password": null }` para dejar la cuenta en «Solo Google»; invalida sus sesiones |
+| PATCH  | `/users/:id/role`     | admin | `{ "role": "STUDENT" | "OTHER" | "REFEREE" | "TREASURER" }` (solo el Owner asigna `ADMIN_SYSTEM` y `OWNER_SYSTEM`) |
 
 ```json
-// POST /users  (pre-registro: se vincula al primer login con Google)
+// POST /users  (sin `password`: la cuenta entra solo con Google, que se vincula al primer login)
 { "email": "x@undc.edu.pe", "fullName": "…", "role": "OTHER",
   "dni": "12345678" }
+// Con `password` la cuenta también entra con correo y contraseña (POST /auth/login)
+{ "email": "alumno@example.com", "fullName": "…", "role": "STUDENT",
+  "facultyId": 1, "schoolId": 3, "password": "…" }
 ```
 Reglas: un `ADMIN_SYSTEM` puede gestionar/crear roles no administrativos
-(`STUDENT`, `OTHER` y `REFEREE`); no se puede inhabilitar a un `OWNER_SYSTEM` ni a uno
-mismo. Un usuario `OTHER` o `REFEREE` no requiere `facultyId` ni `schoolId`. Un usuario con
+(`STUDENT`, `OTHER`, `REFEREE` y `TREASURER`); no se puede inhabilitar a un `OWNER_SYSTEM` ni a uno
+mismo. Un usuario `OTHER`, `REFEREE` o `TREASURER` no requiere `facultyId` ni `schoolId`. Una cuenta con
+contraseña conserva su rol al entrar también con Google (no se recalcula por el correo). Un usuario con
 `isActive=false` no puede autenticarse (rechazado en `JwtStrategy`).
 
 ---
@@ -474,7 +493,7 @@ Reglas del algoritmo (coloreo de grafos por franjas):
 
 | Método | Ruta                | Auth  | Notas |
 | ------ | ------------------- | ----- | ----- |
-| GET    | `/admin/dashboard`  | admin | Métricas agregadas del panel |
+| GET    | `/admin/dashboard`  | pagos | Métricas agregadas del panel |
 
 ---
 

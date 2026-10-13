@@ -10,6 +10,8 @@ interface JwtPayload {
   sub: number;
   email: string;
   role: Role;
+  /** Versión de las credenciales de la cuenta; ausente en los tokens anteriores (= 0). */
+  tv?: number;
 }
 
 @Injectable()
@@ -34,6 +36,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
     if (!user.isActive) {
       throw new UnauthorizedException('Usuario deshabilitado');
+    }
+    if ((payload.tv ?? 0) !== user.tokenVersion) {
+      throw new UnauthorizedException(
+        'La sesión ya no es válida. Ingresa nuevamente.',
+      );
     }
     return {
       id: user.id,

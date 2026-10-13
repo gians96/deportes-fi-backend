@@ -7,7 +7,7 @@ Provider: `mysql` (MariaDB externa). Fuente de verdad:
 
 | Enum                 | Valores |
 | -------------------- | ------- |
-| `Role`               | `OWNER_SYSTEM`, `ADMIN_SYSTEM`, `REFEREE`, `STUDENT`, `OTHER` |
+| `Role`               | `OWNER_SYSTEM`, `ADMIN_SYSTEM`, `TREASURER`, `REFEREE`, `STUDENT`, `OTHER` |
 | `Gender`             | `M`, `F`, `O` |
 | `DisciplineModality` | `TEAM`, `INDIVIDUAL` |
 | `GenderPolicy`       | `MALE`, `FEMALE`, `MIXED`, `FREE` |
@@ -83,6 +83,14 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   `ACTIVE`. Detalle en `specs/001-tokens-api-por-evento/data-model.md`.
 - Borrados en cascada: `Discipline → Team → Participant/Voucher`, etc., vía
   `onDelete: Cascade`.
+
+### Tesorero y acceso por contraseña (spec 004)
+
+- `Role.TREASURER`: ve y valida pagos (comprobantes) y nada más; ver la matriz en `src/common/roles-matrix.spec.ts`.
+- `User.passwordHash` (nulo = solo Google): scrypt `scrypt$N$r$p$sal$hash`, nunca sale por la API.
+  `User.tokenVersion` sube al cambiar o quitar la contraseña; el JWT lleva `tv` y la sesión con otra versión
+  se rechaza.
+- Migración `20261014120000_tesorero_y_acceso_por_contrasena` (modifica el enum y agrega 2 columnas).
 
 ### Proveedores de DNI (spec 003)
 

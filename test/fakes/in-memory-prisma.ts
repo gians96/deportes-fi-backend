@@ -80,6 +80,8 @@ export interface FakeUser {
   fullName: string;
   role: Role;
   isActive: boolean;
+  /** Versión de credenciales: el JWT debe llevar la misma (`tv`). */
+  tokenVersion: number;
   studentCode: string | null;
 }
 

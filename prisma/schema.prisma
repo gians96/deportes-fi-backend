@@ -13,6 +13,7 @@ datasource db {
 enum Role {
   OWNER_SYSTEM
   ADMIN_SYSTEM
+  TREASURER
   REFEREE
   STUDENT
   OTHER
@@ -126,6 +127,10 @@ model User {
   email       String  @unique
   fullName    String
   googleSub   String? @unique
+  // scrypt (`scrypt$N$r$p$sal$hash`); nulo = la cuenta solo entra con Google. Nunca sale por la API.
+  passwordHash String? @db.VarChar(255)
+  // Sube al cambiar o quitar la contraseña: invalida las sesiones emitidas antes (claim `tv` del JWT).
+  tokenVersion Int    @default(0)
   avatarUrl   String?
   role        Role    @default(STUDENT)
   isActive    Boolean @default(true)

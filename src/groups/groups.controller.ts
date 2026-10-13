@@ -12,13 +12,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Role, VoucherStatus } from '@prisma/client';
+import { VoucherStatus } from '@prisma/client';
 import { unlink } from 'node:fs/promises';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { PAYMENT_ROLES } from '../common/roles';
 import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { GroupsService } from './groups.service';
@@ -65,7 +66,7 @@ export class GroupsController {
   }
 
   @UseGuards(RolesGuard)
-  @Roles(Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM)
+  @Roles(...PAYMENT_ROLES)
   @Get()
   findAll(
     @Query('eventId') eventId?: string,

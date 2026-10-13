@@ -28,11 +28,10 @@ import {
 } from './group-detail';
 import { normalizeCycle, normalizeSection } from './group-normalize';
 import { baseFee } from './group-pricing';
-
-const STAFF_ROLES: Role[] = [Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM];
+import { PAYMENT_ROLES, isStaffRole } from '../common/roles';
 
 function isStaff(actor: RequestUser): boolean {
-  return STAFF_ROLES.includes(actor.role);
+  return isStaffRole(actor.role);
 }
 
 export interface GroupListQuery {
@@ -226,7 +225,8 @@ export class GroupsService {
     if (!group) {
       throw new NotFoundException('Salón o ciclo no encontrado');
     }
-    if (!isStaff(actor) && group.delegateId !== actor.id) {
+    // El tesorero consulta cualquier salón para revisar sus pagos; solo el equipo los crea a nombre de otros.
+    if (!PAYMENT_ROLES.includes(actor.role) && group.delegateId !== actor.id) {
       throw new ForbiddenException('No tienes acceso a este salón o ciclo');
     }
     const [detail] = await this.detailMany([group]);

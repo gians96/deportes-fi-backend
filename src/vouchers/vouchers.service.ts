@@ -9,11 +9,11 @@ import {
   ParticipantType,
   Prisma,
   RegistrationStatus,
-  Role,
   VoucherKind,
   VoucherStatus,
 } from '@prisma/client';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
+import { STAFF_ROLES } from '../common/roles';
 import { groupLabel } from '../groups/group-normalize';
 import { assertGroupRoster } from '../groups/group-roster';
 import { PrismaService } from '../prisma/prisma.service';
@@ -73,8 +73,6 @@ export interface SkippedTeam {
   teamId: number;
   reason: string;
 }
-
-const STAFF_ROLES: Role[] = [Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM];
 
 @Injectable()
 export class VouchersService {

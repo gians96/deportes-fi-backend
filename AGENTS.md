@@ -78,7 +78,13 @@ evento deportivo para la "Semana Sistémica".
 
 - Cualquier correo verificado por Google inicia sesión; `@undc.edu.pe`
   numérico es `STUDENT`, el resto es `OTHER`, salvo `OWNER_EMAILS`/`ADMIN_EMAILS`.
-- `ADMIN_SYSTEM` solo crea/gestiona usuarios `STUDENT`; no toca admins/owners.
+- `ADMIN_SYSTEM` crea y gestiona `STUDENT`, `OTHER`, `REFEREE` y `TREASURER`; no toca admins/owners.
+- **Tesorero** (`TREASURER`, spec 004): ve y valida pagos (`PAYMENT_ROLES` en `src/common/roles.ts`:
+  `vouchers`, `GET /registrations`, `GET /groups`, `GET /admin/dashboard`); no aprueba equipos ni configura. Una
+  prueba (`roles-matrix.spec.ts`) falla si un rol gana o pierde una ruta sin querer.
+- **Acceso por contraseña** (spec 004): solo cuentas con `User.passwordHash` entran por `POST /auth/login`
+  (scrypt, bloqueo por intentos, error único, sesiones con `tv`). El hash y las contraseñas nunca se devuelven
+  ni se registran; una cuenta con contraseña conserva su rol al entrar con Google.
 - No inhabilitar a un `OWNER_SYSTEM` ni a uno mismo.
 - Inscripción: respetar `registrationDeadline`, mín/máx jugadores, política de
   género, **sin integrantes duplicados** (código/DNI), `maxTeams` y voucher
@@ -240,7 +246,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni`, `004-tesorero-y-acceso-por-contrasena`.
 
 ## Antes de dar por terminado
 

@@ -213,6 +213,7 @@ export function buildSportsDataset(): FakeDataset {
         fullName: 'OWNER LOCAL',
         role: Role.OWNER_SYSTEM,
         isActive: true,
+        tokenVersion: 0,
         studentCode: null,
       },
       {
@@ -221,6 +222,7 @@ export function buildSportsDataset(): FakeDataset {
         fullName: 'ESTUDIANTE LOCAL',
         role: Role.STUDENT,
         isActive: true,
+        tokenVersion: 0,
         studentCode: '2020100001',
       },
     ],

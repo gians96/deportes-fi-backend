@@ -11,6 +11,28 @@ import { OAuth2Client } from 'google-auth-library';
 import { Role, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AcademicService } from '../academic/academic.service';
+import { LoginThrottle } from './login-throttle';
+import {
+  hashPassword,
+  needsRehash,
+  verifyAgainstDummy,
+  verifyPassword,
+} from './password';
+
+export type SessionUser = Pick<
+  User,
+  | 'id'
+  | 'email'
+  | 'fullName'
+  | 'role'
+  | 'studentCode'
+  | 'dni'
+  | 'facultyId'
+  | 'schoolId'
+  | 'avatarUrl'
+>;
+
+const INVALID_CREDENTIALS = 'Credenciales incorrectas';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +47,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly academic: AcademicService,
+    private readonly throttle: LoginThrottle,
   ) {
     this.googleClientId = this.config.get<string>('GOOGLE_CLIENT_ID') ?? '';
     this.oauthClient = new OAuth2Client(this.googleClientId);
@@ -43,31 +66,57 @@ export class AuthService {
       .filter(Boolean);
   }
 
-  async loginWithGoogle(idToken: string): Promise<{
-    token: string;
-    user: Pick<
-      User,
-      | 'id'
-      | 'email'
-      | 'fullName'
-      | 'role'
-      | 'studentCode'
-      | 'dni'
-      | 'facultyId'
-      | 'schoolId'
-      | 'avatarUrl'
-    >;
-  }> {
+  async loginWithGoogle(
+    idToken: string,
+  ): Promise<{ token: string; user: SessionUser }> {
     const payload = await this.verifyGoogleToken(idToken);
     const email = (payload.email ?? '').toLowerCase();
 
     const code = email.split('@')[0];
     const user = await this.upsertUser(email, code, payload);
     await this.linkParticipants(user);
-    const token = this.signToken(user);
+    return this.sessionOf(user);
+  }
 
+  /**
+   * Acceso con correo y contraseña (cuentas creadas por un administrador con «Contraseña o Google»).
+   * Todo fallo responde igual (cuenta inexistente, sin contraseña, inactiva o clave errónea) y hace el
+   * mismo trabajo, para no revelar si el correo existe. Los intentos fallidos se limitan por correo e IP.
+   */
+  async loginWithPassword(
+    ip: string,
+    rawEmail: string,
+    password: string,
+  ): Promise<{ token: string; user: SessionUser }> {
+    const email = rawEmail.trim().toLowerCase();
+    this.throttle.assertAllowed(ip, email);
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    const valid = user?.passwordHash
+      ? await verifyPassword(password, user.passwordHash)
+      : await verifyAgainstDummy(password);
+
+    if (!user || !valid || !user.isActive) {
+      this.throttle.recordFailure(ip, email);
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+    this.throttle.recordSuccess(ip, email);
+
+    if (user.passwordHash && needsRehash(user.passwordHash)) {
+      await this.prisma.user
+        .update({
+          where: { id: user.id },
+          data: { passwordHash: await hashPassword(password) },
+        })
+        .catch(() => undefined);
+    }
+    await this.linkParticipants(user);
+    return this.sessionOf(user);
+  }
+
+  private sessionOf(user: User): { token: string; user: SessionUser } {
     return {
-      token,
+      token: this.signToken(user),
       user: {
         id: user.id,
         email: user.email,
@@ -114,10 +163,12 @@ export class AuthService {
     payload: { name?: string; picture?: string; sub: string },
   ): Promise<User> {
     const existing = await this.prisma.user.findUnique({ where: { email } });
+    // Roles de personal y cuentas con contraseña (creadas a mano por un administrador) se conservan;
+    // solo estudiantes y otros se recalculan a partir del correo de Google.
     const role =
       existing &&
-      existing.role !== Role.STUDENT &&
-      existing.role !== Role.OTHER
+      (existing.passwordHash ||
+        (existing.role !== Role.STUDENT && existing.role !== Role.OTHER))
         ? existing.role
         : this.resolveRole(email);
 
@@ -163,6 +214,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      tv: user.tokenVersion,
     });
   }
 

@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Ip,
+  Patch,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { PasswordLoginDto } from './dto/password-login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import {
@@ -15,6 +26,26 @@ export class AuthController {
   @Post('google')
   google(@Body() dto: GoogleLoginDto) {
     return this.auth.loginWithGoogle(dto.idToken);
+  }
+
+  @Post('login')
+  login(
+    @Body() dto: PasswordLoginDto,
+    @Req() request: Request,
+    @Ip() ip: string,
+  ) {
+    return this.auth.loginWithPassword(
+      this.clientIp(request) ?? ip,
+      dto.email,
+      dto.password,
+    );
+  }
+
+  /** Misma regla que el límite global: la IP original viene en `X-Forwarded-For` detrás del proxy. */
+  private clientIp(request: Request): string | undefined {
+    const forwarded = request.headers['x-forwarded-for'];
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    return first?.split(',')[0]?.trim() || undefined;
   }
 
   @UseGuards(JwtAuthGuard)

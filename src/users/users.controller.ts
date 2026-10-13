@@ -14,6 +14,7 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { SetActiveDto } from './dto/set-active.dto';
+import { SetPasswordDto } from './dto/set-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -52,6 +53,15 @@ export class UsersController {
     @Body() dto: SetActiveDto,
   ) {
     return this.users.setActive(actor, id, dto.isActive);
+  }
+
+  @Patch(':id/password')
+  setPassword(
+    @CurrentUser() actor: RequestUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetPasswordDto,
+  ) {
+    return this.users.setPassword(actor, id, dto.password);
   }
 
   @Patch(':id/role')
