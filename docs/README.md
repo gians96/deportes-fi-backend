@@ -9,6 +9,7 @@ API REST del **Sistema de Deportes de la Facultad de Ingeniería (UNDC)**, const
 - [data-model.md](./data-model.md) — Modelo de datos (Prisma) y enums.
 - [deployment.md](./deployment.md) — Despliegue (Docker / Dokploy), variables de entorno.
 - [runbook-tokens-evento.md](./runbook-tokens-evento.md) — Migración de tokens por evento en producción (deriva, baseline, pepper, rollback).
+- [runbook-pago-por-grupo.md](./runbook-pago-por-grupo.md) — Migración del pago por salón o ciclo (voucher compartido): orden de despliegue, verificación, rollback.
 - [Integración con el congreso](#integración-con-el-congreso-semana-sistémica) — Tokens por evento consumidos por `backend-ciisic` para la "Semana Sistémica" (Contrato 2).
 - [`../AGENTS.md`](../AGENTS.md) — Forma de trabajar: comandos, reglas, ecosistema y checklist.
 

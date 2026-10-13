@@ -43,7 +43,7 @@ evento deportivo para la "Semana Sistémica".
 - Prefijo global **`/api/v1`** (`main.ts`).
 - Módulos en `src/<dominio>/`: `auth`, `users`, `faculties`, `events`,
   `disciplines`, `registrations`, `vouchers`, `standings`, `scheduling`, `admin`,
-  `academic`, `event-tokens`, `integrations`, `prisma`, `common`.
+  `academic`, `event-tokens`, `integrations`, `groups`, `prisma`, `common`.
 - Patrón por módulo: `*.controller.ts`, `*.service.ts`, `*.module.ts`, `dto/`.
 - **Prisma** es la capa de datos (`PrismaService`). Esquema en
   `prisma/schema.prisma`.
@@ -87,6 +87,21 @@ evento deportivo para la "Semana Sistémica".
   admin/owner (creación manual de equipos).
 - El rate limit es global por IP y vive como guard de aplicación; no hacerlo
   específico de Decolecta o de un endpoint aislado.
+
+**Pago por salón o ciclo** (`specs/002-pago-por-grupo`, eventos con `SportEvent.pricingMode =
+PER_GROUP`; los eventos `PER_DISCIPLINE` no cambian):
+
+- Un voucher puede cubrir varios equipos (`Team.voucherId`; `Voucher.kind` = `TEAM|BASE|EXTRA`). El
+  pago base de un grupo (`ClassGroup`: salón o ciclo completo) cubre un equipo por disciplina
+  (cupo 1, sin voucher); cada equipo adicional de una disciplina (cupo ≥ 2) paga un `EXTRA`. Los
+  montos los calcula el servidor desde `EventPricing`; nunca se confía en el cliente.
+- Ciclo completo y salones sueltos del mismo ciclo son excluyentes; ciclo y sección son texto libre
+  normalizado (`group-normalize.ts`). Cupos y grupos duplicados los impide la base (`UNIQUE`).
+- Nómina de un grupo: un capitán/a, DNI de 8 dígitos y código por integrante (`group-roster.ts`).
+- Validar un `BASE`/`EXTRA` aprueba en bloque los equipos que cubre; el Contrato 2 cuenta cada
+  voucher una sola vez y reparte su monto en centavos (`allocateCents`). **No agregues campos** a las
+  respuestas de `/integrations/event/*`.
+- `Voucher.teamId` se conserva (doble escritura para `TEAM`) hasta la migración de contracción.
 
 **Tokens de integración por evento** (Contrato 2, `specs/001-tokens-api-por-evento`):
 
@@ -217,7 +232,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`.
 
 ## Antes de dar por terminado
 

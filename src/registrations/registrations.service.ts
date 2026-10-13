@@ -35,6 +35,9 @@ const disciplineInclude = {
   },
 } satisfies Prisma.DisciplineInclude;
 
+/** Reintentos cuando otra solicitud toma el mismo cupo al mismo tiempo. */
+const SLOT_ATTEMPTS = 3;
+
 type DisciplineWithEvent = Prisma.DisciplineGetPayload<{
   include: typeof disciplineInclude;
 }>;
@@ -171,7 +174,10 @@ export class RegistrationsService {
       section?: string | null;
     } = { checkCapacity: true },
   ) {
-    if (options.checkCapacity !== false && new Date() > discipline.registrationDeadline) {
+    if (
+      options.checkCapacity !== false &&
+      new Date() > discipline.registrationDeadline
+    ) {
       throw new BadRequestException(
         'El plazo de inscripción para esta disciplina ya cerró',
       );
@@ -201,7 +207,10 @@ export class RegistrationsService {
       );
     }
 
-    if (discipline.participantType === ParticipantType.STUDENT && (!options.cycle || !options.section)) {
+    if (
+      discipline.participantType === ParticipantType.STUDENT &&
+      (!options.cycle || !options.section)
+    ) {
       throw new BadRequestException(
         'Las disciplinas para estudiantes requieren ciclo y seccion del equipo',
       );
@@ -230,9 +239,7 @@ export class RegistrationsService {
     for (const p of participants) {
       const id = (p.studentCode || p.dni || '').toLowerCase();
       if (id && identifiers.has(id)) {
-        throw new BadRequestException(
-          `Integrante duplicado: ${p.fullName}`,
-        );
+        throw new BadRequestException(`Integrante duplicado: ${p.fullName}`);
       }
       if (id) identifiers.add(id);
     }
@@ -258,7 +265,12 @@ export class RegistrationsService {
 
   private validateParticipantAccess(
     discipline: { participantType: ParticipantType },
-    user: { role: Role; email: string; studentCode: string | null; dni?: string | null },
+    user: {
+      role: Role;
+      email: string;
+      studentCode: string | null;
+      dni?: string | null;
+    },
   ) {
     if (user.role === Role.OWNER_SYSTEM || user.role === Role.ADMIN_SYSTEM) {
       return;
@@ -335,7 +347,10 @@ export class RegistrationsService {
       discipline,
       dto.participants,
       discipline._count.teams,
-      { cycle: dto.cycle?.trim() || null, section: dto.section?.trim() || null },
+      {
+        cycle: dto.cycle?.trim() || null,
+        section: dto.section?.trim() || null,
+      },
     );
 
     if (discipline.isPaid && !voucherPath) {
@@ -510,7 +525,7 @@ export class RegistrationsService {
       : userId;
     const { byCode, byDni } = await this.matchUsers(dto.participants);
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= SLOT_ATTEMPTS; attempt++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
           const taken = await tx.team.findMany({
@@ -562,8 +577,10 @@ export class RegistrationsService {
           });
         });
       } catch (error) {
-        // P2002: otro equipo tomó el mismo cupo al mismo tiempo; se reintenta una vez.
-        if (prismaErrorCode(error) === 'P2002' && attempt < 2) continue;
+        // P2002: otro equipo tomó el mismo cupo al mismo tiempo; se reintenta.
+        if (prismaErrorCode(error) === 'P2002' && attempt < SLOT_ATTEMPTS) {
+          continue;
+        }
         if (prismaErrorCode(error) === 'P2002') {
           throw new ConflictException(
             'Otro equipo se registró al mismo tiempo; intenta nuevamente',

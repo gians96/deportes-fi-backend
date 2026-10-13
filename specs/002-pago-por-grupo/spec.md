@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-13
 
-**Status**: Borrador (2026-10-13)
+**Status**: Implementada en el backend (2026-10-13); el frontend se especifica en `frontend/specs/`
 
 **Input**: "Un voucher de pago por salón (S/100) o por ciclo completo (S/150) que cubre un equipo en
 cada disciplina; cada equipo adicional en una misma disciplina paga aparte (S/20 por salón, S/30 por
@@ -322,3 +322,21 @@ Un administrador marca el evento como `PER_GROUP` y fija las cuatro tarifas (edi
 Frontend (spec propia en `frontend/specs/`), nómina oficial como lista aparte del salón, contraste del
 DNI con RENIEC, validación del ciclo/sección con SIVIRENO, género por integrante, reportes y
 exportaciones, cambios en `backend-ciisic`.
+
+## Evidencia de verificación (2026-10-13)
+
+- `bun run build` sin errores; `bun run test`: 15 suites, 266 pruebas en verde (las 26 del Contrato 2
+  anteriores pasan sin modificarse: regresión de `PER_DISCIPLINE`). ESLint sin errores nuevos en los
+  archivos tocados.
+- Migración aplicada sobre un esquema anterior con datos sembrados: sin errores, `Team.voucherId`
+  rellenado, `prisma migrate diff` sin diferencias. Detalle y límites (MySQL 8.0.30, no MariaDB 11)
+  en [`docs/runbook-pago-por-grupo.md`](../../docs/runbook-pago-por-grupo.md).
+- Prueba de humo con HTTP real y concurrencia (mismo salón ×6, ciclo vs salones, 5 adicionales
+  simultáneos): ver el runbook. Resultado: un único grupo, sin ciclo y salones a la vez, cupos
+  distintos y sin vouchers huérfanos.
+- Cumplimiento: SC-001 (3 disciplinas en la prueba de humo, 5 en las pruebas unitarias) y SC-002 a
+  SC-005 verificados; las dos preguntas abiertas se resolvieron con los
+  valores por defecto (no se bloquea al mismo alumno en cupos distintos de una disciplina; un
+  voucher base rechazado no impide registrar equipos).
+- Pendiente fuera de esta feature: contracción de `Voucher.teamId`, frontend, aviso al mantenedor
+  del congreso y repetir la verificación de la migración en MariaDB 11.

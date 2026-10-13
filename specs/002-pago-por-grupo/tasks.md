@@ -27,7 +27,7 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 - [x] T003 Agregar enums, `EventPricing`, `ClassGroup` y los campos nuevos en `prisma/schema.prisma` (`prisma validate` OK)
 - [x] T004 Crear `prisma/migrations/20261013120000_pago_por_grupo/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel, revisada a mano; incluye el backfill de `Team.voucherId`)
-- [ ] T005 (pendiente: requiere MariaDB Docker) Verificar en una BD *shadow* local que migraciones + la nueva vs. esquema solo dejan la deriva previa
+- [x] T005 (verificada en MySQL 8.0.30 local, ver runbook; repetir en MariaDB 11) Verificar en una BD *shadow* local que migraciones + la nueva vs. esquema solo dejan la deriva previa
 - [x] T006 [P] `src/groups/group-normalize.ts` (`normalizeCycle`, `normalizeSection`, `groupLabel`) + `group-normalize.spec.ts` (5/V/ciclo V/v ciclo, A-1/a 1/sección A1, vacíos, fuera de I–XII)
 - [x] T007 [P] `src/groups/group-pricing.ts` (`baseFee`, `extraFee`, `allocateCents`) + `group-pricing.spec.ts` (suma exacta n=1..7, centavos, monto 0)
 - [x] T008 (se hace al empezar los servicios, para no dejar el build roto entre fases) Regenerar el cliente (`bunx prisma generate`) y ajustar tipos que usaban `voucher.team` singular
@@ -75,10 +75,11 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 8: Cierre
 
-- [ ] T030 Actualizar `docs/api-contract.md` y `docs/data-model.md`; escribir `docs/runbook-pago-por-grupo.md` (baseline de deriva, orden de despliegue, reversión, contracción posterior)
-- [ ] T031 `bun run build`, `bun run test`, `bunx eslint <archivos tocados>` sin errores nuevos
-- [ ] T032 Prueba de humo local (servidor :3030 contra MariaDB Docker :3311) siguiendo `quickstart.md`
-- [ ] T033 Cerrar la spec: evidencia de verificación y estado "Implementada"; avisar al mantenedor del congreso del delta de valores del Contrato 2
+- [x] T030 Actualizar `docs/api-contract.md` y `docs/data-model.md`; escribir `docs/runbook-pago-por-grupo.md` (baseline de deriva, orden de despliegue, reversión, contracción posterior)
+- [x] T031 `bun run build`, `bun run test`, `bunx eslint <archivos tocados>` sin errores nuevos
+- [x] T032 Prueba de humo local (API :3030 contra un MySQL 8.0.30 temporal :3399, sin Docker por falta de RAM), con pruebas de concurrencia reales; ver runbook
+- [x] T033 Cerrar la spec: evidencia de verificación y estado "Implementada" (backend)
+- [ ] T034 Avisar al mantenedor del congreso (otro repositorio) del delta de valores del Contrato 2: acción humana
 
 **Después de este feature (otra spec)**: contracción (`Voucher.teamId`, doble escritura) y el frontend
 en `frontend/specs/002-*`.

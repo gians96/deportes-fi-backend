@@ -156,6 +156,24 @@ el token en claro se devuelve **una única vez** al crearlo.
 - Errores: `404 "Evento no encontrado"`, `404 "Token no encontrado"` (no existe o
   es de otro evento), `503` si falta `API_TOKEN_PEPPER` en producción.
 
+### Tarifas del evento (pago por salón o ciclo)
+
+| Método | Ruta                   | Auth  | Notas |
+| ------ | ---------------------- | ----- | ----- |
+| GET    | `/events/:id/pricing`  | auth  | Modo de cobro y tarifas. Un evento sin configurar responde `PER_DISCIPLINE` y tarifas en `0` |
+| PUT    | `/events/:id/pricing`  | admin | Fija el modo y las cuatro tarifas (≥ 0, hasta 2 decimales) |
+
+```json
+{ "eventId": 3, "pricingMode": "PER_GROUP", "sectionBase": 100, "cycleBase": 150,
+  "sectionExtra": 20, "cycleExtra": 30 }
+```
+
+- `PER_DISCIPLINE` (valor por defecto) es el cobro de siempre, por disciplina y por equipo.
+  `PER_GROUP` cobra por salón o ciclo completo: ver [Grupos](#grupos-salón-o-ciclo).
+- Volver a `PER_DISCIPLINE` con grupos ya creados responde `400`.
+- Cambiar las tarifas no modifica los vouchers ya emitidos: guardan su monto.
+- Errores: `404 "Evento no encontrado"`, `400` por tarifas negativas o con más de 2 decimales.
+
 ---
 
 ## Disciplines
@@ -225,6 +243,8 @@ el token en claro se devuelve **una única vez** al crearlo.
 | `delegateId`     | number | no          | **solo lo respeta si el actor es admin/owner** (equipo manual); en flujo público el delegado es el usuario autenticado |
 | `participants`   | string | sí          | **JSON** del arreglo de jugadores (ver ↓); el delegado no va aquí salvo que también juegue y se agregue como integrante |
 | `voucher`        | file   | si pagada   | imagen del comprobante |
+| `groupId`        | number | si el evento es `PER_GROUP` | salón o ciclo que paga; ver [Grupos](#grupos-salón-o-ciclo) |
+| `extraVoucherId` | number | no          | suma un equipo adicional a un comprobante EXTRA pendiente del mismo grupo |
 
 ```jsonc
 // participants (JSON.stringify)
@@ -242,6 +262,75 @@ Cada integrante se **vincula automáticamente** a su `User` (si existe) por
 `studentCode` o `dni`, de modo que el estudiante vea ese equipo en
 `/registrations/mine`.
 
+### Equipos en eventos que cobran por salón o ciclo (`PER_GROUP`)
+
+Aplica a las disciplinas de estudiantes de un evento `PER_GROUP`; las demás siguen el flujo
+anterior. Cada integrante de `participants` acepta además `"isCaptain": true`.
+
+- El servidor toma **ciclo y sección del grupo** (los del cuerpo se ignoran); en un ciclo
+  completo guarda `section = "CICLO COMPLETO"`.
+- **Cupo por disciplina** (`slot`): el primer equipo de cada disciplina es el cupo 1, cubierto
+  por el pago base del grupo, y **no lleva voucher**; adjuntar uno responde `400`. Los
+  siguientes son adicionales (cupo ≥ 2) y exigen un comprobante: `voucher` nuevo (crea un
+  voucher `EXTRA` con la tarifa adicional) o `extraVoucherId` de un `EXTRA` pendiente del grupo
+  (el monto pasa a tarifa × equipos activos). Sin ninguno: `400 "El equipo adicional requiere su
+  comprobante de pago (S/ 20.00)"`.
+- Nómina: exactamente un capitán/a; todos con código de estudiante y DNI de 8 dígitos; sin DNI
+  repetidos dentro del equipo. Un mismo alumno puede estar en equipos de distintas disciplinas.
+- Se respetan plazo y `maxTeams` de la disciplina. El evento debe estar abierto.
+- Errores: `400 "…primero registra tu salón o ciclo"` (falta `groupId`), `404 "Salón o ciclo no
+  encontrado"` (inexistente o de otro evento), `403` si el actor no es el delegado del grupo
+  (el staff puede), `409` si dos solicitudes pelean el mismo cupo y se agotan los reintentos.
+- La respuesta es el equipo con `participants` y `voucher`, más `groupId` y `slot`.
+- `PATCH /registrations/:id/approve` exige que el voucher que cubre al equipo (base o extra)
+  esté `VALIDATED` y no acepta equipos `REJECTED`/`CANCELLED` (se registran de nuevo).
+  `PATCH /registrations/:id/reject` libera el cupo (`slot = null`).
+
+---
+
+## Grupos (salón o ciclo)
+
+Unidad que paga en los eventos `PER_GROUP`: un **salón** (escuela + ciclo + sección) o un
+**ciclo completo** (todas sus secciones). El ciclo se normaliza a romano (I–XII) y la sección,
+de texto libre, a mayúsculas alfanuméricas sin espacios ("5" o "ciclo V" → `V`; "a-1" → `A1`).
+Un grupo es único por evento + escuela + alcance + ciclo + sección.
+
+| Método | Ruta                 | Auth  | Notas |
+| ------ | -------------------- | ----- | ----- |
+| POST   | `/groups`            | auth (estudiante o admin) | **multipart/form-data**; crea el grupo y su voucher base |
+| GET    | `/groups/mine`       | auth  | Grupos del usuario (delegado); `?eventId=` |
+| GET    | `/groups/:id`        | delegado o admin | Detalle |
+| GET    | `/groups`            | admin | `?eventId=` (obligatorio) `&schoolId=&cycle=&status=` (estado del voucher base) |
+
+`POST /groups`: `eventId`, `scope` (`SECTION`|`CYCLE`), `schoolId`, `cycle`, `section`
+(obligatoria para un salón, ignorada para un ciclo), `operationNumber`, `delegateId` (solo admin) y
+`voucher` (imagen, obligatoria). El voucher base (`kind: BASE`) queda `PENDING` con la tarifa base
+del evento (`sectionBase` o `cycleBase`).
+
+```jsonc
+// GroupDetail
+{ "id": 12, "eventId": 3, "scope": "SECTION", "label": "Ingeniería de Sistemas · V · A1",
+  "school": { "id": 1, "name": "Ingeniería de Sistemas" }, "cycle": "V", "section": "A1",
+  "delegate": { "id": 40, "fullName": "…" },
+  "baseVoucher": { "id": 77, "kind": "BASE", "status": "PENDING", "amount": 100,
+    "operationNumber": "123456", "imageUrl": "/uploads/vouchers/…", "rejectionReason": null },
+  "disciplines": [ { "disciplineId": 7, "name": "Futsal", "teams": [
+    { "id": 301, "name": "Los Bits", "slot": 1, "status": "PENDING", "voucherId": 77 } ] } ],
+  "extraVouchers": [ { "id": 81, "kind": "EXTRA", "status": "PENDING", "amount": 20,
+    "operationNumber": "124", "imageUrl": "…", "rejectionReason": null, "teamIds": [305] } ] }
+```
+
+Reglas y errores de `POST /groups`:
+- Solo eventos `PER_GROUP`, abiertos, con tarifas y con alguna disciplina de estudiantes vigente;
+  la escuela debe pertenecer a la facultad del evento.
+- **409** `"Este salón ya está inscrito"` / `"Este ciclo ya está inscrito"` aunque se escriba
+  distinto (la base de datos garantiza la unicidad).
+- **400** si el ciclo ya participa completo o, al revés, ya tiene salones inscritos: un ciclo es
+  completo **o** salones sueltos. Un grupo cuyo voucher base fue rechazado y sin equipos activos
+  no bloquea; ese mismo salón se recupera reemplazando el comprobante.
+- `400` por ciclo fuera de I–XII, sección vacía o de más de 10 caracteres, falta del comprobante;
+  `403` si el rol no es estudiante ni admin; `404` evento, escuela o delegado inexistentes.
+
 ---
 
 ## Vouchers
@@ -251,6 +340,7 @@ Cada integrante se **vincula automáticamente** a su `User` (si existe) por
 | GET    | `/vouchers?status=`       | admin | `status` ∈ `PENDING\|VALIDATED\|REJECTED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=` |
 | PATCH  | `/vouchers/:id/validate`  | admin | — |
 | PATCH  | `/vouchers/:id/reject`    | admin | `{ "reason": "…" }` |
+| PATCH  | `/vouchers/:id/replace`   | delegado del grupo/equipo o admin | **multipart**: `voucher` (imagen) y `operationNumber`; solo si está `REJECTED` |
 
 Cada elemento de la lista incluye datos del equipo y de la disciplina para la
 validación: `teamName`, `phone`, `operationNumber`, `amount`, `imageUrl`,
@@ -258,6 +348,20 @@ validación: `teamName`, `phone`, `operationNumber`, `amount`, `imageUrl`,
 `minPlayers`/`maxPlayers`, `eventName`, `facultyName`, `schoolName`,
 `participantsCount` y `participants[]` (cada uno con su `userId` si está
 vinculado).
+
+Un voucher tiene `kind`: `TEAM` (un solo equipo, flujo por disciplina), `BASE` (pago general de un
+grupo) o `EXTRA` (equipo adicional); puede cubrir varios equipos. Los de grupo se listan con
+`groupId`, `groupLabel` y `teams[]` (`id`, `name`, `disciplineName`, `slot`, `status`); los campos
+históricos describen el primer equipo (vacíos si todavía no cubre ninguno).
+
+- `validate` de un `BASE`/`EXTRA` valida el pago una sola vez y **aprueba en bloque** los equipos que
+  cubre y cumplen las reglas. Responde el voucher más `approvedTeamIds: number[]` y
+  `skipped: [{ "teamId", "reason" }]` (los que quedaron `PENDING` y por qué). Un `BASE` sin
+  equipos responde `400 "El salón aún no registra equipos"`. Validar de nuevo aprueba los equipos
+  que se sumaron después. Un voucher `TEAM` se valida como siempre.
+- `reject` de un `BASE`/`EXTRA` devuelve a `PENDING` los equipos que había aprobado.
+- `replace`: conserva el `id` y los equipos que cubre; vuelve a `PENDING` y limpia el motivo.
+  `403` si no es el responsable, `400` si no está rechazado.
 
 ---
 
@@ -404,6 +508,14 @@ Reglas:
 - "Recaudado" (`validated`) = suma de `Voucher.amount` con `status = VALIDATED`.
   Los pagos se clasifican solo por el estado del voucher (un voucher `PENDING` de
   un equipo rechazado sigue contando como pendiente).
+- **Pagos compartidos** (spec 002): cada voucher cuenta **una sola vez** aunque cubra varios equipos
+  (`payments.<estado>.count` son vouchers distintos). Para `byDiscipline` y `byParticipantType` el
+  monto se reparte entre los equipos que cubre en centavos exactos (el resto, de a un centavo, a
+  los de menor `id`), por lo que `Σ byDiscipline.validatedAmount = payments.validated.amount`.
+  Un pago base pendiente que aún no cubre equipos cuenta como pendiente en `payments` pero no en
+  el desglose. Las formas JSON no cambian; en `payments` un voucher de grupo muestra en
+  `teamName` la etiqueta del grupo y en `disciplineName` "Pago base (salón)", "Pago base (ciclo)"
+  o "Adicional · <disciplina>".
 - Montos en soles como número con hasta 2 decimales (se suman con `Decimal`).
 - `teams.total`, `participants.total` y `byParticipantType[].teams` cuentan
   equipos/integrantes en cualquier estado. `byDiscipline` incluye todas las

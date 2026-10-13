@@ -15,6 +15,9 @@ Provider: `mysql` (MariaDB externa). Fuente de verdad:
 | `ParticipantType`    | `STUDENT`, `OTHER` |
 | `RegistrationStatus` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED` |
 | `VoucherStatus`      | `PENDING`, `VALIDATED`, `REJECTED` |
+| `PricingMode`        | `PER_DISCIPLINE` (por defecto), `PER_GROUP` |
+| `GroupScope`         | `SECTION`, `CYCLE` |
+| `VoucherKind`        | `TEAM`, `BASE`, `EXTRA` |
 | `MatchStatus`        | `PENDING`, `IN_PROGRESS`, `PLAYED`, `CANCELLED`, `POSTPONED` |
 
 ## Entidades y relaciones
@@ -32,7 +35,9 @@ Discipline 1───* Standing
 
 User (delegate) 1───* Team
 Team 1───* Participant
-Team 1───1 Voucher
+Team *───1 Voucher            (un voucher puede cubrir varios equipos: Team.voucherId)
+SportEvent 1───0/1 EventPricing   SportEvent 1───* ClassGroup
+ClassGroup 1───* Team             ClassGroup 1───* Voucher (BASE/EXTRA)
 Team 1───1 Standing
 Team *──* Match (home / away / winner)
 User 0/1 ──* Participant (vínculo opcional al usuario real)
@@ -60,7 +65,10 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   automáticamente al inscribir un equipo y al loguear/completar perfil, casando
   por `studentCode` o `dni`. El delegado responsable de la inscripción vive en
   `Team.delegateId`; no necesita formar parte de la lista de jugadores.
-- **Voucher**: 1:1 con `Team`; `imageUrl` apunta a `uploads/vouchers/...`.
+- **Voucher**: puede cubrir varios equipos (`Team.voucherId`); `kind` = `TEAM` (un equipo, flujo
+  por disciplina), `BASE` (pago general de un grupo) o `EXTRA` (equipo adicional). `imageUrl` apunta
+  a `uploads/vouchers/...`. `teamId` (relación histórica 1:1) es opcional y solo lo usan los `TEAM`,
+  con doble escritura mientras dure la transición; se eliminará en una migración posterior.
 - **Match** / **Standing**: soporte para brackets (eliminación) y tabla de
   posiciones (puntos). Endpoints de avance/resultados pendientes (ver roadmap).
   La implementacion actual genera round-robin para `POINTS`, eliminacion simple
@@ -75,6 +83,24 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   `ACTIVE`. Detalle en `specs/001-tokens-api-por-evento/data-model.md`.
 - Borrados en cascada: `Discipline → Team → Participant/Voucher`, etc., vía
   `onDelete: Cascade`.
+
+### Pago por salón o ciclo (spec 002)
+
+- **SportEvent.pricingMode**: `PER_DISCIPLINE` (por defecto, comportamiento histórico) o
+  `PER_GROUP`. **EventPricing** (1:1 con el evento) guarda `sectionBase`, `cycleBase`,
+  `sectionExtra` y `cycleExtra`; los vouchers guardan una instantánea del monto.
+- **ClassGroup**: salón (`SECTION`) o ciclo completo (`CYCLE`) de una escuela en un evento.
+  Único por `(eventId, schoolId, scope, cycle, section)`; `section = ''` en un ciclo (no `NULL`,
+  porque un índice único de MySQL admite varios `NULL`). `baseVoucherId` es único: un solo pago
+  base por grupo. La exclusión ciclo/salones se valida en transacción serializable.
+- **Team**: `groupId`, `voucherId` (voucher que lo cubre) y `slot` (1 = incluido en el pago base,
+  ≥ 2 = adicional; `NULL` sin grupo o si el equipo fue rechazado). `UNIQUE(groupId, disciplineId,
+  slot)` impide dos equipos con el mismo cupo; las filas sin grupo no participan.
+- **Participant.isCaptain**: capitán/a del equipo.
+- Invariantes: un `BASE` validado cubre al menos un equipo; un equipo aprobado de un grupo tiene su
+  voucher `VALIDATED`; `Team.voucherId` de un grupo apunta a un `BASE`/`EXTRA` de **su** grupo.
+- Migración `20261013120000_pago_por_grupo` (solo agrega, rellena `Team.voucherId`) y runbook:
+  [`runbook-pago-por-grupo.md`](./runbook-pago-por-grupo.md).
 
 ## Migraciones
 
