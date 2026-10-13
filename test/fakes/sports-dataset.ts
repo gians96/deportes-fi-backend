@@ -3,6 +3,7 @@ import {
   Prisma,
   RegistrationStatus,
   Role,
+  VoucherKind,
   VoucherStatus,
 } from '@prisma/client';
 import type {
@@ -322,3 +323,158 @@ export function sensitiveValues(dataset: FakeDataset): string[] {
     '@',
   ].filter(Boolean);
 }
+
+/**
+ * Dataset A con pagos compartidos (spec 002):
+ * - grupo 1 (Sistemas, V-A1): pago BASE 3000 (S/100, VALIDATED) que cubre 3 equipos de las
+ *   disciplinas 10, 12 y 13, y un EXTRA 3001 (S/20, PENDING) que cubre el equipo adicional 303;
+ * - grupo 2 (Sistemas, VI ciclo completo): pago BASE 3002 (S/150, PENDING) sin equipos todavía;
+ * - grupo 3 del evento B: pago BASE 4000 (S/999.99, VALIDATED) con el equipo 400.
+ */
+export function buildMixedDataset(): FakeDataset {
+  const dataset = buildSportsDataset();
+  const groupVoucher = (
+    id: number,
+    amount: string,
+    status: VoucherStatus,
+    kind: VoucherKind,
+    groupId: number,
+  ): FakeVoucher => ({
+    ...voucher(id, 0, amount, status),
+    teamId: null,
+    kind,
+    groupId,
+  });
+  const covered = (item: FakeTeam, voucherId: number): FakeTeam => ({
+    ...item,
+    voucherId,
+  });
+
+  dataset.groups = [
+    {
+      id: 1,
+      eventId: EVENT_A_ID,
+      schoolName: 'Ingeniería de Sistemas',
+      scope: 'SECTION',
+      cycle: 'V',
+      section: 'A1',
+    },
+    {
+      id: 2,
+      eventId: EVENT_A_ID,
+      schoolName: 'Ingeniería de Sistemas',
+      scope: 'CYCLE',
+      cycle: 'VI',
+      section: '',
+    },
+    {
+      id: 3,
+      eventId: EVENT_B_ID,
+      schoolName: 'Ingeniería Ambiental',
+      scope: 'SECTION',
+      cycle: 'II',
+      section: 'B2',
+    },
+  ];
+  const groupTeams = [
+    covered(team(300, 10, 'Salón Fútbol', RegistrationStatus.APPROVED), 3000),
+    covered(team(301, 12, 'Salón Ajedrez', RegistrationStatus.APPROVED), 3000),
+    covered(team(302, 13, 'Salón Básquet', RegistrationStatus.APPROVED), 3000),
+    covered(team(303, 10, 'Salón Fútbol B', RegistrationStatus.PENDING), 3001),
+    covered(
+      team(400, 20, 'Equipo del salón B', RegistrationStatus.APPROVED),
+      4000,
+    ),
+  ];
+  dataset.teams.push(...groupTeams);
+  dataset.participants.push(
+    ...groupTeams.flatMap((item) => participants(item.id, 1)),
+  );
+  dataset.vouchers.push(
+    groupVoucher(3000, '100.00', VoucherStatus.VALIDATED, VoucherKind.BASE, 1),
+    groupVoucher(3001, '20.00', VoucherStatus.PENDING, VoucherKind.EXTRA, 1),
+    groupVoucher(3002, '150.00', VoucherStatus.PENDING, VoucherKind.BASE, 2),
+    groupVoucher(4000, '999.99', VoucherStatus.VALIDATED, VoucherKind.BASE, 3),
+  );
+  return dataset;
+}
+
+/**
+ * Resumen esperado del evento A con pagos compartidos. El pago base de S/100 se reparte en
+ * centavos exactos entre sus 3 equipos (33.34 + 33.33 + 33.33, por orden de id).
+ */
+export const EXPECTED_SUMMARY_A_MIXED = {
+  teams: { total: 15, pending: 4, approved: 9, rejected: 1, cancelled: 1 },
+  participants: { total: 21 },
+  payments: {
+    validated: { count: 6, amount: 232.8 },
+    pending: { count: 5, amount: 245 },
+    rejected: { count: 1, amount: 50 },
+  },
+  byDiscipline: [
+    {
+      disciplineId: 12,
+      name: 'Ajedrez',
+      participantType: 'STUDENT',
+      isPaid: false,
+      cost: 0,
+      teams: { total: 3, approved: 2, pending: 1 },
+      validatedAmount: 33.33,
+      pendingAmount: 0,
+    },
+    {
+      disciplineId: 13,
+      name: 'Básquet damas',
+      participantType: 'STUDENT',
+      isPaid: true,
+      cost: 30,
+      teams: { total: 1, approved: 1, pending: 0 },
+      validatedAmount: 33.33,
+      pendingAmount: 0,
+    },
+    {
+      disciplineId: 10,
+      name: 'Fútbol 7 varones',
+      participantType: 'STUDENT',
+      isPaid: true,
+      cost: 50,
+      teams: { total: 6, approved: 3, pending: 2 },
+      validatedAmount: 133.34,
+      pendingAmount: 70,
+    },
+    {
+      disciplineId: 14,
+      name: 'Tenis de mesa',
+      participantType: 'OTHER',
+      isPaid: true,
+      cost: 10.1,
+      teams: { total: 2, approved: 2, pending: 0 },
+      validatedAmount: 20.3,
+      pendingAmount: 0,
+    },
+    {
+      disciplineId: 11,
+      name: 'Vóley mixto',
+      participantType: 'OTHER',
+      isPaid: true,
+      cost: 12.5,
+      teams: { total: 3, approved: 1, pending: 1 },
+      validatedAmount: 12.5,
+      pendingAmount: 25,
+    },
+  ],
+  byParticipantType: [
+    {
+      participantType: 'STUDENT',
+      teams: 10,
+      validatedAmount: 200,
+      pendingAmount: 70,
+    },
+    {
+      participantType: 'OTHER',
+      teams: 5,
+      validatedAmount: 32.8,
+      pendingAmount: 25,
+    },
+  ],
+} as const;

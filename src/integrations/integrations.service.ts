@@ -3,8 +3,11 @@ import {
   ParticipantType,
   Prisma,
   RegistrationStatus,
+  VoucherKind,
   VoucherStatus,
 } from '@prisma/client';
+import { groupLabel } from '../groups/group-normalize';
+import { allocateCents, fromCents, toCents } from '../groups/group-pricing';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DEFAULT_PAGE_SIZE,
@@ -84,32 +87,46 @@ export class IntegrationsService {
 
   async getSummary(eventId: number): Promise<IntegrationSummary> {
     // Una transacción para que disciplinas y equipos salgan de la misma foto.
-    const [event, disciplines, teams] = await this.prisma.$transaction([
-      this.prisma.sportEvent.findUnique({
-        where: { id: eventId },
-        select: { id: true, name: true, startDate: true, endDate: true },
-      }),
-      this.prisma.discipline.findMany({
-        where: { eventId },
-        select: {
-          id: true,
-          name: true,
-          participantType: true,
-          isPaid: true,
-          cost: true,
-        },
-        orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      }),
-      this.prisma.team.findMany({
-        where: { discipline: { eventId } },
-        select: {
-          status: true,
-          disciplineId: true,
-          _count: { select: { participants: true } },
-          voucher: { select: { amount: true, status: true } },
-        },
-      }),
-    ]);
+    const [event, disciplines, teams, vouchers] =
+      await this.prisma.$transaction([
+        this.prisma.sportEvent.findUnique({
+          where: { id: eventId },
+          select: { id: true, name: true, startDate: true, endDate: true },
+        }),
+        this.prisma.discipline.findMany({
+          where: { eventId },
+          select: {
+            id: true,
+            name: true,
+            participantType: true,
+            isPaid: true,
+            cost: true,
+          },
+          orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        }),
+        this.prisma.team.findMany({
+          where: { discipline: { eventId } },
+          select: {
+            status: true,
+            disciplineId: true,
+            _count: { select: { participants: true } },
+          },
+        }),
+        // Cada voucher se lee una sola vez, aunque cubra varios equipos (pago de un salón o ciclo).
+        this.prisma.voucher.findMany({
+          where: eventVouchersWhere(eventId),
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            team: { select: { id: true, disciplineId: true } },
+            teams: {
+              select: { id: true, disciplineId: true },
+              orderBy: { id: 'asc' },
+            },
+          },
+        }),
+      ]);
     if (!event) {
       throw new NotFoundException('Evento no encontrado');
     }
@@ -155,13 +172,6 @@ export class IntegrationsService {
       teamsByStatus[team.status] += 1;
       participantsTotal += team._count.participants;
 
-      const voucher = team.voucher;
-      if (voucher) {
-        const bucket = payments[voucher.status];
-        bucket.count += 1;
-        bucket.amount = bucket.amount.plus(voucher.amount);
-      }
-
       const disciplineStats = byDiscipline.get(team.disciplineId);
       const participantType = typeOfDiscipline.get(team.disciplineId);
       const typeStats = participantType ? byType.get(participantType) : null;
@@ -176,20 +186,48 @@ export class IntegrationsService {
       } else if (team.status === RegistrationStatus.PENDING) {
         disciplineStats.pending += 1;
       }
+    }
 
-      if (voucher?.status === VoucherStatus.VALIDATED) {
-        disciplineStats.validatedAmount = disciplineStats.validatedAmount.plus(
-          voucher.amount,
-        );
-        typeStats.validatedAmount = typeStats.validatedAmount.plus(
-          voucher.amount,
-        );
-      } else if (voucher?.status === VoucherStatus.PENDING) {
-        disciplineStats.pendingAmount = disciplineStats.pendingAmount.plus(
-          voucher.amount,
-        );
-        typeStats.pendingAmount = typeStats.pendingAmount.plus(voucher.amount);
+    for (const voucher of vouchers) {
+      const bucket = payments[voucher.status];
+      bucket.count += 1;
+      bucket.amount = bucket.amount.plus(voucher.amount);
+
+      if (
+        voucher.status !== VoucherStatus.VALIDATED &&
+        voucher.status !== VoucherStatus.PENDING
+      ) {
+        continue;
       }
+      // El monto se reparte en centavos exactos entre los equipos que cubre el voucher
+      // (un voucher de un solo equipo conserva su monto completo).
+      const covered = voucher.teams.length
+        ? voucher.teams
+        : voucher.team
+          ? [voucher.team]
+          : [];
+      if (!covered.length) {
+        continue;
+      }
+      const shares = allocateCents(toCents(voucher.amount), covered.length);
+      covered.forEach((team, index) => {
+        const disciplineStats = byDiscipline.get(team.disciplineId);
+        const participantType = typeOfDiscipline.get(team.disciplineId);
+        const typeStats = participantType ? byType.get(participantType) : null;
+        if (!disciplineStats || !typeStats) {
+          return;
+        }
+        const share = fromCents(shares[index]);
+        if (voucher.status === VoucherStatus.VALIDATED) {
+          disciplineStats.validatedAmount =
+            disciplineStats.validatedAmount.plus(share);
+          typeStats.validatedAmount = typeStats.validatedAmount.plus(share);
+        } else {
+          disciplineStats.pendingAmount =
+            disciplineStats.pendingAmount.plus(share);
+          typeStats.pendingAmount = typeStats.pendingAmount.plus(share);
+        }
+      });
     }
 
     const disciplineSummaries: IntegrationDisciplineSummary[] = disciplines.map(
@@ -256,7 +294,7 @@ export class IntegrationsService {
   ): Promise<Paginated<IntegrationPayment>> {
     const { page, pageSize, skip } = resolvePagination(query);
     const where: Prisma.VoucherWhereInput = {
-      team: { discipline: { eventId } },
+      ...eventVouchersWhere(eventId),
       ...(query.status ? { status: query.status } : {}),
     };
 
@@ -270,11 +308,28 @@ export class IntegrationsService {
           operationNumber: true,
           uploadedAt: true,
           updatedAt: true,
+          kind: true,
           team: {
             select: {
               name: true,
               discipline: { select: { name: true, participantType: true } },
             },
+          },
+          group: {
+            select: {
+              scope: true,
+              cycle: true,
+              section: true,
+              school: { select: { name: true } },
+            },
+          },
+          teams: {
+            select: {
+              name: true,
+              discipline: { select: { name: true, participantType: true } },
+            },
+            orderBy: { id: 'asc' },
+            take: 1,
           },
         },
         orderBy: [{ uploadedAt: 'desc' }, { id: 'desc' }],
@@ -292,11 +347,7 @@ export class IntegrationsService {
         operationNumber: voucher.operationNumber,
         uploadedAt: voucher.uploadedAt,
         updatedAt: voucher.updatedAt,
-        // El filtro exige un equipo; los vouchers de grupo se incorporan en la spec 002 (US6).
-        teamName: voucher.team?.name ?? '',
-        disciplineName: voucher.team?.discipline.name ?? '',
-        participantType:
-          voucher.team?.discipline.participantType ?? ParticipantType.STUDENT,
+        ...paymentLabels(voucher),
       })),
       meta: { page, pageSize, total },
     };
@@ -343,6 +394,70 @@ export class IntegrationsService {
       meta: { page, pageSize, total },
     };
   }
+}
+
+/**
+ * Vouchers de un evento: los de sus equipos (por la relación nueva o la histórica) y los de sus
+ * grupos aunque todavía no cubran ningún equipo. Siempre acotados por el `eventId` del token.
+ */
+function eventVouchersWhere(eventId: number): Prisma.VoucherWhereInput {
+  return {
+    OR: [
+      { team: { discipline: { eventId } } },
+      { teams: { some: { discipline: { eventId } } } },
+      { group: { eventId } },
+    ],
+  };
+}
+
+interface PaymentLabelSource {
+  kind: VoucherKind;
+  team: {
+    name: string;
+    discipline: { name: string; participantType: ParticipantType };
+  } | null;
+  group: {
+    scope: 'SECTION' | 'CYCLE';
+    cycle: string;
+    section: string;
+    school: { name: string };
+  } | null;
+  teams: {
+    name: string;
+    discipline: { name: string; participantType: ParticipantType };
+  }[];
+}
+
+/**
+ * Misma forma que siempre (teamName, disciplineName, participantType). Para el pago de un salón
+ * o ciclo, teamName es la etiqueta del grupo y disciplineName describe el pago.
+ */
+function paymentLabels(voucher: PaymentLabelSource) {
+  if (voucher.kind !== VoucherKind.TEAM && voucher.group) {
+    const { scope, cycle, section, school } = voucher.group;
+    const firstDiscipline = voucher.teams[0]?.discipline.name;
+    let disciplineName: string;
+    if (voucher.kind === VoucherKind.BASE) {
+      disciplineName =
+        scope === 'CYCLE' ? 'Pago base (ciclo)' : 'Pago base (salón)';
+    } else {
+      disciplineName = firstDiscipline
+        ? `Adicional · ${firstDiscipline}`
+        : 'Adicional';
+    }
+    return {
+      teamName: groupLabel(school.name, scope, cycle, section),
+      disciplineName,
+      participantType: ParticipantType.STUDENT,
+    };
+  }
+  const team = voucher.team ?? voucher.teams[0] ?? null;
+  return {
+    teamName: team?.name ?? '',
+    disciplineName: team?.discipline.name ?? '',
+    participantType:
+      team?.discipline.participantType ?? ParticipantType.STUDENT,
+  };
 }
 
 /** Soles como número con hasta 2 decimales, sin errores de coma flotante. */

@@ -69,9 +69,9 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 7: US6 - Contrato 2 (P1)
 
-- [ ] T027 [US6] `IntegrationsService.summary`: vouchers distintos del evento, `allocateCents` por equipo, mismas formas
-- [ ] T028 [US6] `IntegrationsService.listPayments`: filtro por equipos o grupo del evento, etiquetas de `BASE`/`EXTRA`
-- [ ] T029 [US6] Pruebas: regresión 001 (`PER_DISCIPLINE`), evento mixto con invariantes, aislamiento entre eventos, `Σ byDiscipline = payments.validated`
+- [x] T027 [US6] `IntegrationsService.summary`: vouchers distintos del evento, `allocateCents` por equipo, mismas formas
+- [x] T028 [US6] `IntegrationsService.listPayments`: filtro por equipos o grupo del evento, etiquetas de `BASE`/`EXTRA`
+- [x] T029 [US6] Pruebas: regresión 001 (`PER_DISCIPLINE`), evento mixto con invariantes, aislamiento entre eventos, `Σ byDiscipline = payments.validated`
 
 ## Phase 8: Cierre
 

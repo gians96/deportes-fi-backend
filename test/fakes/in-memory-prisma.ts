@@ -3,6 +3,7 @@ import {
   Prisma,
   RegistrationStatus,
   Role,
+  VoucherKind,
   VoucherStatus,
 } from '@prisma/client';
 
@@ -47,6 +48,8 @@ export interface FakeTeam {
   phone: string | null;
   status: RegistrationStatus;
   createdAt: Date;
+  /** Voucher que cubre al equipo (Team.voucherId); puede ser compartido. */
+  voucherId?: number | null;
 }
 
 export interface FakeParticipant {
@@ -59,7 +62,10 @@ export interface FakeParticipant {
 
 export interface FakeVoucher {
   id: number;
-  teamId: number;
+  /** Relación histórica 1:1; null en vouchers BASE/EXTRA de un grupo. */
+  teamId: number | null;
+  kind?: VoucherKind;
+  groupId?: number | null;
   amount: Prisma.Decimal;
   status: VoucherStatus;
   operationNumber: string | null;
@@ -91,6 +97,15 @@ export interface FakeToken {
   updatedAt: Date;
 }
 
+export interface FakeGroup {
+  id: number;
+  eventId: number;
+  schoolName: string;
+  scope: 'SECTION' | 'CYCLE';
+  cycle: string;
+  section: string;
+}
+
 export interface FakeDataset {
   events: FakeEvent[];
   disciplines: FakeDiscipline[];
@@ -99,6 +114,7 @@ export interface FakeDataset {
   vouchers: FakeVoucher[];
   users: FakeUser[];
   tokens: FakeToken[];
+  groups?: FakeGroup[];
 }
 
 export interface FakeCall {
@@ -314,24 +330,85 @@ export class InMemoryPrisma {
     );
   }
 
+  /**
+   * Vouchers de un evento: `OR` de (equipo por la relación histórica | equipos por Team.voucherId |
+   * grupo). Todas las cláusulas deben filtrar por el MISMO eventId o el fake falla.
+   */
   private filterVouchers(where: Row): FakeVoucher[] {
-    assertKeys(where, ['team', 'status'], 'voucher');
-    const teamWhere = where.team as Row | undefined;
-    if (!teamWhere) {
+    assertKeys(where, ['OR', 'status'], 'voucher');
+    const clauses = where.OR as Row[] | undefined;
+    if (!clauses?.length) {
       throw new Error('FakePrisma: vouchers sin filtro por evento');
     }
-    assertKeys(teamWhere, ['discipline'], 'voucher.team');
-    const eventId = requireEventFilter(
-      teamWhere.discipline,
-      'voucher.team.discipline',
+    const eventIds = new Set(
+      clauses.map((clause) => this.clauseEventId(clause)),
     );
-    return this.data.vouchers.filter((voucher) => {
-      const team = this.teamById(voucher.teamId);
-      return (
-        this.disciplineById(team.disciplineId).eventId === eventId &&
-        (where.status === undefined || voucher.status === where.status)
+    if (eventIds.size !== 1) {
+      throw new Error(
+        'FakePrisma: las cláusulas filtran por eventos distintos',
       );
-    });
+    }
+    const [eventId] = [...eventIds];
+    return this.data.vouchers.filter(
+      (voucher) =>
+        clauses.some((clause) =>
+          this.voucherInEvent(voucher, clause, eventId),
+        ) &&
+        (where.status === undefined || voucher.status === where.status),
+    );
+  }
+
+  private clauseEventId(clause: Row): number {
+    assertKeys(clause, ['team', 'teams', 'group'], 'voucher.OR');
+    if (clause.team) {
+      const team = clause.team as Row;
+      assertKeys(team, ['discipline'], 'voucher.OR.team');
+      return requireEventFilter(team.discipline, 'voucher.OR.team.discipline');
+    }
+    if (clause.teams) {
+      const teams = clause.teams as Row;
+      assertKeys(teams, ['some'], 'voucher.OR.teams');
+      const some = teams.some as Row;
+      assertKeys(some, ['discipline'], 'voucher.OR.teams.some');
+      return requireEventFilter(
+        some.discipline,
+        'voucher.OR.teams.some.discipline',
+      );
+    }
+    if (clause.group) {
+      return requireEventFilter(clause.group, 'voucher.OR.group');
+    }
+    throw new Error('FakePrisma: cláusula de voucher vacía');
+  }
+
+  private voucherInEvent(
+    voucher: FakeVoucher,
+    clause: Row,
+    eventId: number,
+  ): boolean {
+    if (clause.team) {
+      return (
+        voucher.teamId !== null &&
+        this.disciplineById(this.teamById(voucher.teamId).disciplineId)
+          .eventId === eventId
+      );
+    }
+    if (clause.teams) {
+      return this.linkedTeams(voucher).some(
+        (team) => this.disciplineById(team.disciplineId).eventId === eventId,
+      );
+    }
+    const group = this.data.groups?.find((item) => item.id === voucher.groupId);
+    return group?.eventId === eventId;
+  }
+
+  /** Equipos que cubre un voucher; la relación histórica cuenta como enlace (doble escritura). */
+  private linkedTeams(voucher: FakeVoucher): FakeTeam[] {
+    const linked = this.data.teams
+      .filter((team) => team.voucherId === voucher.id)
+      .sort((a, b) => a.id - b.id);
+    if (linked.length || voucher.teamId === null) return linked;
+    return this.data.teams.filter((team) => team.id === voucher.teamId);
   }
 
   private matchToken(token: FakeToken, where: Row): boolean {
@@ -366,7 +443,9 @@ export class InMemoryPrisma {
     const participants = this.data.participants.filter(
       (participant) => participant.teamId === team.id,
     );
-    const voucher = this.data.vouchers.find((item) => item.teamId === team.id);
+    const voucher = this.data.vouchers.find(
+      (item) => item.teamId === team.id || item.id === team.voucherId,
+    );
     return {
       ...team,
       discipline: this.hydrateDiscipline(
@@ -379,9 +458,16 @@ export class InMemoryPrisma {
   }
 
   private hydrateVoucher(voucher: FakeVoucher): Row {
+    const group = this.data.groups?.find((item) => item.id === voucher.groupId);
     return {
       ...voucher,
-      team: this.hydrateTeam(this.teamById(voucher.teamId)),
+      kind: voucher.kind ?? VoucherKind.TEAM,
+      team:
+        voucher.teamId === null
+          ? null
+          : this.hydrateTeam(this.teamById(voucher.teamId)),
+      teams: this.linkedTeams(voucher).map((team) => this.hydrateTeam(team)),
+      group: group ? { ...group, school: { name: group.schoolName } } : null,
     };
   }
 
