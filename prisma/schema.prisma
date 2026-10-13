@@ -59,6 +59,22 @@ enum VoucherStatus {
   REJECTED
 }
 
+enum PricingMode {
+  PER_DISCIPLINE
+  PER_GROUP
+}
+
+enum GroupScope {
+  SECTION
+  CYCLE
+}
+
+enum VoucherKind {
+  TEAM
+  BASE
+  EXTRA
+}
+
 enum MatchStatus {
   PENDING
   IN_PROGRESS
@@ -88,6 +104,7 @@ model ProfessionalSchool {
 
   events SportEvent[]
   users  User[]
+  groups ClassGroup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -109,6 +126,7 @@ model User {
   school      ProfessionalSchool? @relation(fields: [schoolId], references: [id])
 
   delegatedTeams Team[] @relation("TeamDelegate")
+  delegatedGroups ClassGroup[] @relation("GroupDelegate")
   participations Participant[]
 
   createdAt DateTime @default(now())
@@ -126,9 +144,12 @@ model SportEvent {
   startDate   DateTime
   endDate     DateTime
   isOpen      Boolean @default(true)
+  pricingMode PricingMode @default(PER_DISCIPLINE)
 
   disciplines Discipline[]
   apiTokens   EventApiToken[]
+  pricing     EventPricing?
+  groups      ClassGroup[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -199,9 +220,14 @@ model Team {
   phone           String?
   status          RegistrationStatus @default(PENDING)
   rejectionReason String?            @db.Text
+  groupId         Int?
+  group           ClassGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  voucherId       Int?
+  voucher         Voucher?           @relation("TeamVoucher", fields: [voucherId], references: [id], onDelete: SetNull)
+  slot            Int?
 
-  participants Participant[]
-  voucher      Voucher?
+  participants  Participant[]
+  legacyVoucher Voucher?      @relation("LegacyVoucherTeam")
   homeMatches  Match[]       @relation("HomeTeam")
   awayMatches  Match[]       @relation("AwayTeam")
   wonMatches   Match[]       @relation("WinnerTeam")
@@ -209,6 +235,9 @@ model Team {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([groupId, disciplineId, slot])
+  @@index([voucherId])
 }
 
 model Participant {
@@ -223,14 +252,20 @@ model Participant {
   gender      Gender  @default(O)
   isDelegate  Boolean @default(false)
   countsAsPlayer Boolean @default(true)
+  isCaptain      Boolean @default(false)
 
   createdAt DateTime @default(now())
 }
 
 model Voucher {
   id              Int           @id @default(autoincrement())
-  teamId          Int           @unique
-  team            Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId          Int?          @unique
+  team            Team?         @relation("LegacyVoucherTeam", fields: [teamId], references: [id], onDelete: Cascade)
+  kind            VoucherKind   @default(TEAM)
+  groupId         Int?
+  group           ClassGroup?   @relation("GroupVouchers", fields: [groupId], references: [id], onDelete: SetNull)
+  baseOfGroup     ClassGroup?   @relation("GroupBaseVoucher")
+  teams           Team[]        @relation("TeamVoucher")
   operationNumber String?
   amount          Decimal       @default(0) @db.Decimal(10, 2)
   imageUrl        String
@@ -240,6 +275,8 @@ model Voucher {
 
   uploadedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@index([groupId, kind])
 }
 
 model Match {
@@ -277,4 +314,45 @@ model Standing {
   points       Int        @default(0)
 
   updatedAt DateTime @updatedAt
+}
+
+// Tarifas del evento cuando cobra por salón o ciclo (SportEvent.pricingMode = PER_GROUP).
+model EventPricing {
+  id           Int        @id @default(autoincrement())
+  eventId      Int        @unique
+  event        SportEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sectionBase  Decimal    @default(0) @db.Decimal(10, 2)
+  cycleBase    Decimal    @default(0) @db.Decimal(10, 2)
+  sectionExtra Decimal    @default(0) @db.Decimal(10, 2)
+  cycleExtra   Decimal    @default(0) @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Salón (ciclo + sección) o ciclo completo que paga: un voucher base cubre un equipo por
+// disciplina; cada equipo adicional paga con un voucher EXTRA. section = "" cuando scope = CYCLE
+// (un NULL no haría único el índice compuesto en MySQL).
+model ClassGroup {
+  id            Int                @id @default(autoincrement())
+  eventId       Int
+  event         SportEvent         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  schoolId      Int
+  school        ProfessionalSchool @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  scope         GroupScope
+  cycle         String
+  section       String             @default("")
+  delegateId    Int
+  delegate      User               @relation("GroupDelegate", fields: [delegateId], references: [id], onDelete: Restrict)
+  baseVoucherId Int?               @unique
+  baseVoucher   Voucher?           @relation("GroupBaseVoucher", fields: [baseVoucherId], references: [id], onDelete: SetNull)
+
+  teams    Team[]
+  vouchers Voucher[] @relation("GroupVouchers")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventId, schoolId, scope, cycle, section])
+  @@index([eventId, schoolId, cycle])
 }

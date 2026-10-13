@@ -25,12 +25,12 @@ y aislamiento entre eventos), con *fakes* de Prisma, sin base real.
 
 ## Phase 2: Foundational (bloquea todas las historias)
 
-- [ ] T003 Agregar enums, `EventPricing`, `ClassGroup` y los campos nuevos en `prisma/schema.prisma`
-- [ ] T004 Crear `prisma/migrations/<ts>_pago_por_grupo/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel, revisada a mano; incluye el backfill de `Team.voucherId`)
-- [ ] T005 Verificar en una BD *shadow* local que migraciones + la nueva vs. esquema solo dejan la deriva previa
-- [ ] T006 [P] `src/groups/group-normalize.ts` (`normalizeCycle`, `normalizeSection`, `groupLabel`) + `group-normalize.spec.ts` (5/V/ciclo V/v ciclo, A-1/a 1/sección A1, vacíos, fuera de I–XII)
-- [ ] T007 [P] `src/groups/group-pricing.ts` (`baseFee`, `extraFee`, `allocateCents`) + `group-pricing.spec.ts` (suma exacta n=1..7, centavos, monto 0)
-- [ ] T008 Regenerar el cliente (`bunx prisma generate`) y ajustar tipos que usaban `voucher.team` singular
+- [x] T003 Agregar enums, `EventPricing`, `ClassGroup` y los campos nuevos en `prisma/schema.prisma` (`prisma validate` OK)
+- [x] T004 Crear `prisma/migrations/20261013120000_pago_por_grupo/migration.sql` (generada con `prisma migrate diff` datamodel→datamodel, revisada a mano; incluye el backfill de `Team.voucherId`)
+- [ ] T005 (pendiente: requiere MariaDB Docker) Verificar en una BD *shadow* local que migraciones + la nueva vs. esquema solo dejan la deriva previa
+- [x] T006 [P] `src/groups/group-normalize.ts` (`normalizeCycle`, `normalizeSection`, `groupLabel`) + `group-normalize.spec.ts` (5/V/ciclo V/v ciclo, A-1/a 1/sección A1, vacíos, fuera de I–XII)
+- [x] T007 [P] `src/groups/group-pricing.ts` (`baseFee`, `extraFee`, `allocateCents`) + `group-pricing.spec.ts` (suma exacta n=1..7, centavos, monto 0)
+- [ ] T008 (se hace al empezar los servicios, para no dejar el build roto entre fases) Regenerar el cliente (`bunx prisma generate`) y ajustar tipos que usaban `voucher.team` singular
 
 **Checkpoint**: esquema, migración y núcleo puro listos.
 
