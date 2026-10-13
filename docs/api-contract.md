@@ -56,8 +56,9 @@ Para `STUDENT`, exige facultad y escuela profesional:
 { "facultyId": 1, "schoolId": 3 }
 ```
 
-Para `OTHER`, exige solo DNI. No guarda facultad ni escuela; valida el DNI con
-Decolecta, actualiza `fullName` y vincula participantes por `dni`:
+Para `OTHER`, exige solo DNI. No guarda facultad ni escuela; valida el DNI con los
+[proveedores de DNI](#ajustes-proveedores-de-dni) configurados (Decolecta, API Perú…),
+actualiza `fullName` y vincula participantes por `dni`:
 ```json
 { "dni": "12345678" }
 ```
@@ -77,12 +78,49 @@ cuando hay exactamente un resultado** (privacidad). `404` si no hay coincidencia
 única.
 
 ### `GET /academic/dni?numero=<8 dígitos>` — `auth`
-Consulta **RENIEC vía Decolecta** (disciplinas de tipo `OTHER`). Valida que
-`numero` tenga 8 dígitos. `404` si el DNI no existe; `503` si falta el token de
-Decolecta. Devuelve `AcademicPerson` con `studentCode: null`.
+Consulta el DNI en los **proveedores configurados** (Decolecta, API Perú; disciplinas de tipo
+`OTHER`), por prioridad y con respaldo automático. Valida que `numero` tenga 8 dígitos. `404` si el
+DNI no existe; `503` si no hay ningún proveedor activo con token; `502` si ninguno pudo responder.
+Devuelve `AcademicPerson` con `studentCode: null`.
 
 > Detalle de los servicios externos en
 > [Integraciones externas](#integraciones-externas).
+
+---
+
+## Ajustes: proveedores de DNI
+
+Configuración **en la base de datos** (no en variables de entorno) de los servicios que validan el
+DNI. Solo `OWNER_SYSTEM`/`ADMIN_SYSTEM`. Un cambio se aplica en la siguiente consulta, sin reiniciar
+el servidor. Ninguna respuesta incluye tokens ni datos personales.
+
+| Método | Ruta | Notas |
+| ------ | ---- | ----- |
+| GET    | `/settings/dni-providers` | `{ encryptionKey, providers[] }` |
+| PUT    | `/settings/dni-providers/:provider` | `:provider` = `DECOLECTA` \| `APIPERU` (sin distinguir mayúsculas) |
+| POST   | `/settings/dni-providers/:provider/test` | `{ "dni": "12345678" }` → `{ ok, result, message }` |
+
+```jsonc
+// GET
+{ "encryptionKey": "derived",   // dedicated (INTEGRATION_SECRET_KEY) | derived (de JWT_SECRET) | none
+  "providers": [
+    { "provider": "DECOLECTA", "label": "Decolecta (RENIEC)", "enabled": true, "priority": 0,
+      "apiUrl": "https://api.decolecta.com/v1/reniec/dni", "defaultUrl": "https://api.decolecta.com/v1/reniec/dni",
+      "customUrl": false, "configured": true, "tokenMask": "••••a1b2",
+      "state": "INVALID", "lastError": "UNAUTHORIZED_OR_LIMIT", "lastCheckedAt": "2026-10-13T15:00:00.000Z" } ] }
+
+// PUT — todos los campos son opcionales
+{ "token": "…", "enabled": true, "priority": 0, "apiUrl": "https://…" }
+```
+
+- `token`: una cadena nueva reemplaza la guardada (se aceptan pegados con "Bearer "); `null` o vacío la
+  borra. Se guarda **cifrada** (AES-256-GCM) y solo se muestran los últimos 4 caracteres.
+- `apiUrl`: dirección http(s) del servicio; `null` o vacío vuelve a la URL oficial.
+- `priority`: 0–100, menor = se consulta primero; si uno falla se prueba el siguiente.
+- `state`: `UNVERIFIED`, `VALID` o `INVALID` según la última consulta real o de prueba; `lastError`:
+  `UNAUTHORIZED_OR_LIMIT`, `RATE_LIMITED` o `UNAVAILABLE`.
+- Errores: `400` (token corto, URL inválida, DNI mal formado, proveedor sin token), `404` (proveedor
+  desconocido), `503` (el servidor no tiene ninguna clave para cifrar), `401`/`403` (sesión o rol).
 
 ---
 
@@ -547,11 +585,14 @@ integrantes. Las URLs y credenciales se configuran por variables de entorno
   mapea a `AcademicPerson { fullName, studentCode, dni }`. Solo se devuelve si
   hay **un único** resultado (privacidad).
 
-### Decolecta — RENIEC (consulta de DNI)
-- **Var. entorno**: `DECOLECTA_API_URL`
-  (`https://api.decolecta.com/v1/reniec/dni`) y `DECOLECTA_TOKEN`.
-- **Método**: `GET ?numero=<8 dígitos>` con header
-  `Authorization: Bearer <DECOLECTA_TOKEN>`.
+### Decolecta y API Perú — consulta de DNI
+- **Configuración**: en la base de datos, desde el panel (ver
+  [Ajustes: proveedores de DNI](#ajustes-proveedores-de-dni)); no hay variables de entorno.
+- **API Perú**: `POST https://api.apiperu.dev/dni` con `{ "dni": "…" }` y `Authorization: Bearer`;
+  `404` = no existe, `401` = token inválido, éxito = `{ success, data: { numero, nombre_completo } }`.
+- **Decolecta** (detalle):
+- **Método**: `GET ?numero=<8 dígitos>` (URL por defecto `https://api.decolecta.com/v1/reniec/dni`) con header
+  `Authorization: Bearer <token>`.
 - **Consumido por**: `GET /academic/dni` y `PATCH /auth/me/profile` para
   usuarios `OTHER`.
 - **Uso**: validar integrantes de disciplinas `participantType = OTHER` y
@@ -559,8 +600,8 @@ integrantes. Las URLs y credenciales se configuran por variables de entorno
 - **Respuesta cruda**: `{ first_name, first_last_name, second_last_name,
   full_name, document_number }` → se mapea a `AcademicPerson { fullName:
   full_name, dni: document_number, studentCode: null }`.
-- **Errores**: `503` si `DECOLECTA_TOKEN` no está configurado; `404` si el DNI
-  no existe.
+- **Errores**: `503` si ningún proveedor activo tiene token; `404` si el DNI no existe; `502` si
+  ninguno pudo responder (token inválido, límite agotado o servicio caído).
 
 ---
 

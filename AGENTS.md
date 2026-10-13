@@ -43,7 +43,7 @@ evento deportivo para la "Semana Sistémica".
 - Prefijo global **`/api/v1`** (`main.ts`).
 - Módulos en `src/<dominio>/`: `auth`, `users`, `faculties`, `events`,
   `disciplines`, `registrations`, `vouchers`, `standings`, `scheduling`, `admin`,
-  `academic`, `event-tokens`, `integrations`, `groups`, `prisma`, `common`.
+  `academic`, `event-tokens`, `integrations`, `groups`, `dni-providers`, `prisma`, `common`.
 - Patrón por módulo: `*.controller.ts`, `*.service.ts`, `*.module.ts`, `dto/`.
 - **Prisma** es la capa de datos (`PrismaService`). Esquema en
   `prisma/schema.prisma`.
@@ -87,6 +87,14 @@ evento deportivo para la "Semana Sistémica".
   admin/owner (creación manual de equipos).
 - El rate limit es global por IP y vive como guard de aplicación; no hacerlo
   específico de Decolecta o de un endpoint aislado.
+
+**Proveedores de DNI** (`specs/003-proveedores-dni`): Decolecta y API Perú se configuran **solo en la
+base de datos** desde el panel (token cifrado, URL, prioridad, activación); **no** hay variables
+`DECOLECTA_*`/`APIPERU_*` y los cambios rigen en la siguiente consulta, sin reiniciar. La consulta
+(`AcademicService.findByDni`) recorre los activos por prioridad y solo se detiene ante "encontrado"
+o "no existe" (404). Los tokens nunca salen por la API ni por los logs; la clave de cifrado es
+`INTEGRATION_SECRET_KEY` o, si falta, se deriva de `JWT_SECRET`. Las pruebas que usan `ConfigService`
+deben usar una configuración falsa: el real cae a `process.env`, donde Prisma ya cargó el `.env`.
 
 **Pago por salón o ciclo** (`specs/002-pago-por-grupo`, eventos con `SportEvent.pricingMode =
 PER_GROUP`; los eventos `PER_DISCIPLINE` no cambian):
@@ -232,7 +240,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni`.
 
 ## Antes de dar por terminado
 

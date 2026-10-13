@@ -59,6 +59,17 @@ enum VoucherStatus {
   REJECTED
 }
 
+enum DniProvider {
+  DECOLECTA
+  APIPERU
+}
+
+enum CredentialState {
+  UNVERIFIED
+  VALID
+  INVALID
+}
+
 enum PricingMode {
   PER_DISCIPLINE
   PER_GROUP
@@ -355,4 +366,26 @@ model ClassGroup {
 
   @@unique([eventId, schoolId, scope, cycle, section])
   @@index([eventId, schoolId, cycle])
+}
+
+// Proveedor de consulta de DNI (Decolecta, API Perú) configurable desde la plataforma. El token se
+// guarda cifrado con AES-256-GCM (clave de INTEGRATION_SECRET_KEY o derivada de JWT_SECRET) y nunca se
+// devuelve por la API. `apiUrl` null = URL oficial del proveedor.
+model DniProviderConfig {
+  id            Int             @id @default(autoincrement())
+  provider      DniProvider     @unique
+  enabled       Boolean         @default(true)
+  priority      Int             @default(0)
+  apiUrl        String?         @db.VarChar(300)
+  tokenCipher   String?         @db.Text
+  tokenIv       String?
+  tokenTag      String?
+  tokenLast4    String?
+  state         CredentialState @default(UNVERIFIED)
+  lastError     String?
+  lastCheckedAt DateTime?
+  updatedById   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

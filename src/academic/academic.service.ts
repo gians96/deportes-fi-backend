@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { lookupDni } from '../dni-providers/dni-lookup';
+import { DniProvidersService } from '../dni-providers/dni-providers.service';
 
 /** Respuesta cruda del padrón académico de sivireno. */
 interface RawAcademicStudent {
@@ -9,15 +11,6 @@ interface RawAcademicStudent {
   estudiante?: string;
   egreso?: string | null;
   [key: string]: unknown;
-}
-
-/** Respuesta cruda de Decolecta (RENIEC) para una consulta por DNI. */
-interface RawReniecPerson {
-  first_name?: string;
-  first_last_name?: string;
-  second_last_name?: string;
-  full_name?: string;
-  document_number?: string;
 }
 
 /** Persona normalizada que consume el frontend, sin importar la fuente. */
@@ -31,17 +24,14 @@ export interface AcademicPerson {
 export class AcademicService {
   private readonly logger = new Logger(AcademicService.name);
   private readonly endpoint: string;
-  private readonly reniecEndpoint: string;
-  private readonly decolectaToken: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly dniProviders: DniProvidersService,
+  ) {
     this.endpoint =
       this.config.get<string>('ACADEMIC_API_URL') ??
       'https://sivireno.undc.edu.pe/tiger/consulta/con_searchEstudiante.php';
-    this.reniecEndpoint =
-      this.config.get<string>('DECOLECTA_API_URL') ??
-      'https://api.decolecta.com/v1/reniec/dni';
-    this.decolectaToken = this.config.get<string>('DECOLECTA_TOKEN') ?? '';
   }
 
   /**
@@ -57,69 +47,53 @@ export class AcademicService {
   }
 
   /**
-   * Consulta los datos de una persona por DNI a través de Decolecta (RENIEC).
+   * Consulta los datos de una persona por DNI. Recorre los proveedores activos con token (Decolecta,
+   * API Perú…) por prioridad: si uno no puede responder prueba el siguiente y solo se detiene ante
+   * un resultado definitivo (encontrado o "no existe"). Se configuran en Ajustes → Proveedores de DNI.
    */
   async findByDni(numero: string): Promise<AcademicPerson | null> {
     if (!/^\d{8}$/.test(numero)) {
       return null;
     }
-    if (!this.decolectaToken) {
+    const chain = await this.dniProviders.resolveChain();
+    if (!chain.length) {
       throw new HttpException(
         'El servicio de consulta por DNI no está configurado',
         HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const url = `${this.reniecEndpoint}?numero=${encodeURIComponent(numero)}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.decolectaToken}`,
-          Accept: 'application/json',
-        },
-        signal: controller.signal,
+    let someoneRejected = false;
+    for (const provider of chain) {
+      const outcome = await lookupDni(provider.provider, {
+        url: provider.url,
+        token: provider.token,
+        dni: numero,
       });
+      await this.dniProviders.recordOutcome(provider.provider, outcome);
 
-      if (response.status === 404) {
+      if (outcome.kind === 'found') {
+        return {
+          fullName: outcome.person.fullName,
+          studentCode: null,
+          dni: outcome.person.dni,
+        };
+      }
+      if (outcome.kind === 'not_found') {
         return null;
       }
-      if (!response.ok) {
-        throw new HttpException(
-          'No se pudo consultar el DNI',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      const data = (await response.json()) as RawReniecPerson;
-      const fullName =
-        data.full_name ??
-        [data.first_last_name, data.second_last_name, data.first_name]
-          .filter(Boolean)
-          .join(' ')
-          .trim();
-      if (!fullName) {
-        return null;
-      }
-      return {
-        fullName: fullName.replace(/\s+/g, ' ').trim(),
-        studentCode: null,
-        dni: data.document_number ?? numero,
-      };
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      this.logger.error(`Error consultando DNI: ${String(error)}`);
-      throw new HttpException(
-        'Servicio de consulta por DNI no disponible',
-        HttpStatus.BAD_GATEWAY,
+      if (outcome.kind !== 'unavailable') someoneRejected = true;
+      this.logger.warn(
+        `Proveedor de DNI ${provider.provider} no pudo responder (${outcome.kind})`,
       );
-    } finally {
-      clearTimeout(timeout);
     }
+
+    throw new HttpException(
+      someoneRejected
+        ? 'No se pudo consultar el DNI'
+        : 'Servicio de consulta por DNI no disponible',
+      HttpStatus.BAD_GATEWAY,
+    );
   }
 
   /** Normaliza el registro del padrón a la forma que consume el frontend. */

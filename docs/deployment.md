@@ -29,8 +29,7 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 | `API_TOKEN_PEPPER`     | Pepper del HMAC-SHA256 de los tokens de integración por evento. **Obligatorio en producción** (sin él, crear/usar tokens responde 503). Cambiarlo invalida todos los tokens | *(secreto ≥ 32 caracteres aleatorios)* |
 | `GOOGLE_CLIENT_ID`     | Client ID de Google (mismo que el frontend) | |
 | `ACADEMIC_API_URL`     | Endpoint del padrón SIVIRENO (validación de estudiantes) | *(ver `.env.example`)* |
-| `DECOLECTA_API_URL`    | Endpoint RENIEC vía Decolecta (validación por DNI) | `https://api.decolecta.com/v1/reniec/dni` |
-| `DECOLECTA_TOKEN`      | Token Bearer de Decolecta | *(secreto)* |
+| `INTEGRATION_SECRET_KEY` | *(Opcional)* Clave de 32 bytes (base64 o 64 hex) que cifra los tokens de los proveedores de DNI guardados en la base. Si falta se deriva de `JWT_SECRET`; cambiarla obliga a volver a ingresar los tokens | *(secreto)* |
 | `UPLOADS_DIR`          | Carpeta de archivos subidos | `uploads` |
 | `OWNER_EMAILS`         | Correos con rol owner (coma) | |
 | `ADMIN_EMAILS`         | Correos con rol admin (coma) | |
@@ -63,6 +62,9 @@ docker run -p 3001:3001 --env-file .env deportes-fi-backend
 - [ ] `JWT_SECRET` único y fuerte (no el de ejemplo).
 - [ ] `API_TOKEN_PEPPER` definido (aleatorio, ≥ 32 caracteres) y guardado en el
       gestor de secretos; no rotarlo sin reemitir los tokens de integración.
+- [ ] Tokens de los proveedores de DNI (Decolecta / API Perú) cargados desde el panel
+      (Ajustes → Proveedores de DNI). Ya **no** se leen de `DECOLECTA_TOKEN`: al desplegar esta
+      versión hay que volver a ingresarlos una vez.
 - [ ] CORS no se configura: la API acepta cualquier origen (la protegen el JWT y los tokens).
 - [ ] `GOOGLE_CLIENT_ID` coincide con el del frontend y el dominio está
       autorizado en Google Cloud Console (orígenes JS).

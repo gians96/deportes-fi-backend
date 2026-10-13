@@ -84,6 +84,15 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
 - Borrados en cascada: `Discipline → Team → Participant/Voucher`, etc., vía
   `onDelete: Cascade`.
 
+### Proveedores de DNI (spec 003)
+
+- **DniProviderConfig**: una fila por proveedor (`DECOLECTA`, `APIPERU`) con `enabled`, `priority`
+  (menor = primero), `apiUrl` (nula = URL oficial), el token **cifrado** (AES-256-GCM:
+  `tokenCipher`, `tokenIv`, `tokenTag`) y `tokenLast4` para mostrar una máscara, más el estado de la
+  última consulta (`state` = `UNVERIFIED`/`VALID`/`INVALID`, `lastError`, `lastCheckedAt`). La clave sale
+  de `INTEGRATION_SECRET_KEY` o, si falta, de `JWT_SECRET`; nunca se guarda en la base.
+- Migración `20261013170000_proveedores_dni` (solo crea la tabla).
+
 ### Pago por salón o ciclo (spec 002)
 
 - **SportEvent.pricingMode**: `PER_DISCIPLINE` (por defecto, comportamiento histórico) o
