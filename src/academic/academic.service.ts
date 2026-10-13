@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DniLookupOrigin } from '@prisma/client';
 import { DniLookupService } from '../dni-providers/dni-lookup.service';
+import { UndcApiService } from '../undc-api/undc-api.service';
 
 /** Respuesta cruda del padrón académico de sivireno. */
 interface RawAcademicStudent {
@@ -28,6 +29,7 @@ export class AcademicService {
   constructor(
     private readonly config: ConfigService,
     private readonly dniLookup: DniLookupService,
+    private readonly undcApi: UndcApiService,
   ) {
     this.endpoint =
       this.config.get<string>('ACADEMIC_API_URL') ??
@@ -35,10 +37,22 @@ export class AcademicService {
   }
 
   /**
-   * Consulta el padrón académico por código de estudiante. Por privacidad,
-   * solo devuelve a la persona cuando la respuesta contiene un único resultado.
+   * Consulta el padrón académico por código de estudiante. Si la conexión con API_UNDC (JP) está
+   * configurada, se consulta primero porque devuelve también el DNI; ante cualquier falla, o si no lo
+   * conoce, se usa la búsqueda pública de SIVIRENO (sin DNI). Por privacidad, la búsqueda pública solo
+   * devuelve a la persona cuando la respuesta contiene un único resultado.
    */
   async findUniqueStudent(buscador: string): Promise<AcademicPerson | null> {
+    if (/^\d{8,12}$/.test(buscador)) {
+      const student = await this.undcApi.lookupStudent(buscador);
+      if (student) {
+        return {
+          fullName: student.fullName,
+          studentCode: student.studentCode,
+          dni: student.dni,
+        };
+      }
+    }
     const results = await this.query(buscador);
     if (results.length !== 1) {
       return null;

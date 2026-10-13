@@ -14,6 +14,7 @@ import { IntegrationsController } from '../integrations/integrations.controller'
 import { RegistrationsController } from '../registrations/registrations.controller';
 import { SchedulingController } from '../scheduling/scheduling.controller';
 import { StandingsController } from '../standings/standings.controller';
+import { UndcApiController } from '../undc-api/undc-api.controller';
 import { UsersController } from '../users/users.controller';
 import { VouchersController } from '../vouchers/vouchers.controller';
 import { ROLES_KEY } from './decorators/roles.decorator';
@@ -33,6 +34,7 @@ const CONTROLLERS: Array<Type<unknown>> = [
   RegistrationsController,
   SchedulingController,
   StandingsController,
+  UndcApiController,
   UsersController,
   VouchersController,
 ];
@@ -100,6 +102,10 @@ describe('matriz de roles', () => {
       'DniTokensController.create',
       'DniTokensController.manualLookup',
       'DniTokensController.clearCache',
+      'UndcApiController.get',
+      'UndcApiController.save',
+      'UndcApiController.test',
+      'UndcApiController.remove',
       'VouchersController.replace',
     ]) {
       const roles = routes.get(route);

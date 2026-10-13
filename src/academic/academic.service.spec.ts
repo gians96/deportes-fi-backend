@@ -2,6 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { DniLookupOrigin, DniProvider } from '@prisma/client';
 import type { DniLookupService } from '../dni-providers/dni-lookup.service';
+import type { UndcApiService } from '../undc-api/undc-api.service';
 import { AcademicService } from './academic.service';
 
 /**
@@ -12,10 +13,15 @@ function fakeConfig(values: Record<string, string> = {}): ConfigService {
   return { get: (key: string) => values[key] } as unknown as ConfigService;
 }
 
-function build(lookup: jest.Mock) {
-  return new AcademicService(fakeConfig(), {
-    lookup,
-  } as unknown as DniLookupService);
+function build(
+  lookup: jest.Mock,
+  lookupStudent: jest.Mock = jest.fn().mockResolvedValue(null),
+) {
+  return new AcademicService(
+    fakeConfig(),
+    { lookup } as unknown as DniLookupService,
+    { lookupStudent } as unknown as UndcApiService,
+  );
 }
 
 describe('AcademicService.findByDni', () => {
@@ -67,5 +73,78 @@ describe('AcademicService.findByDni', () => {
     await expect(
       build(jest.fn().mockRejectedValue(unavailable)).findByDni('76251607'),
     ).rejects.toBe(unavailable);
+  });
+});
+
+describe('AcademicService.findUniqueStudent (DNI automático, spec 006)', () => {
+  const lookup = jest.fn();
+  let fetchMock: jest.SpyInstance;
+
+  beforeEach(() => {
+    fetchMock = jest.spyOn(global, 'fetch');
+  });
+  afterEach(() => {
+    fetchMock.mockRestore();
+  });
+
+  const sivireno = (rows: unknown[]) =>
+    new Response(JSON.stringify(rows), { status: 200 });
+
+  it('con un código completo usa primero API_UNDC y devuelve el DNI sin tocar SIVIRENO', async () => {
+    const lookupStudent = jest.fn().mockResolvedValue({
+      fullName: 'PRUEBA UNO PERSONA',
+      studentCode: '2401010001',
+      dni: '70000001',
+    });
+    const person = await build(lookup, lookupStudent).findUniqueStudent(
+      '2401010001',
+    );
+    expect(person).toEqual({
+      fullName: 'PRUEBA UNO PERSONA',
+      studentCode: '2401010001',
+      dni: '70000001',
+    });
+    expect(lookupStudent).toHaveBeenCalledWith('2401010001');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('si API_UNDC no responde o no lo conoce, cae a la búsqueda pública (sin DNI)', async () => {
+    fetchMock.mockResolvedValue(
+      sivireno([
+        {
+          id_estu: '9001',
+          cod_estu: '2401010001',
+          estudiante: 'PRUEBA  UNO PERSONA',
+        },
+      ]),
+    );
+    const person = await build(lookup).findUniqueStudent('2401010001');
+    expect(person).toEqual({
+      fullName: 'PRUEBA UNO PERSONA',
+      studentCode: '2401010001',
+      dni: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('una búsqueda que no es un código completo (nombre, DNI) no consulta a API_UNDC', async () => {
+    const lookupStudent = jest.fn();
+    fetchMock.mockImplementation(() => Promise.resolve(sivireno([])));
+    for (const text of ['perez juan', '7625160', 'ab12345678']) {
+      await build(lookup, lookupStudent).findUniqueStudent(text);
+    }
+    expect(lookupStudent).not.toHaveBeenCalled();
+  });
+
+  it('la búsqueda pública solo devuelve a la persona si hay un único resultado', async () => {
+    fetchMock.mockResolvedValue(
+      sivireno([
+        { cod_estu: '2401010001', estudiante: 'UNO' },
+        { cod_estu: '2401010002', estudiante: 'DOS' },
+      ]),
+    );
+    await expect(
+      build(lookup).findUniqueStudent('2401010001'),
+    ).resolves.toBeNull();
   });
 });

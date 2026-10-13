@@ -19,6 +19,7 @@ import { EventTokensModule } from './event-tokens/event-tokens.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { GroupsModule } from './groups/groups.module';
 import { DniProvidersModule } from './dni-providers/dni-providers.module';
+import { UndcApiModule } from './undc-api/undc-api.module';
 import { AppRateLimitGuard } from './common/guards/app-rate-limit.guard';
 
 @Module({
@@ -44,6 +45,7 @@ import { AppRateLimitGuard } from './common/guards/app-rate-limit.guard';
     IntegrationsModule,
     GroupsModule,
     DniProvidersModule,
+    UndcApiModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AppRateLimitGuard }],
 })
