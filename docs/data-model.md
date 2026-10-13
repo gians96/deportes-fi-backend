@@ -13,7 +13,7 @@ Provider: `mysql` (MariaDB externa). Fuente de verdad:
 | `GenderPolicy`       | `MALE`, `FEMALE`, `MIXED`, `FREE` |
 | `CompetitionFormat`  | `ELIMINATION`, `POINTS` |
 | `ParticipantType`    | `STUDENT`, `OTHER` |
-| `RegistrationStatus` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED` |
+| `RegistrationStatus` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `DRAFT` (spec 006) |
 | `VoucherStatus`      | `PENDING`, `VALIDATED`, `REJECTED` |
 | `PricingMode`        | `PER_DISCIPLINE` (por defecto), `PER_GROUP` |
 | `GroupScope`         | `SECTION`, `CYCLE` |
@@ -107,6 +107,15 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   (`DNI_CACHE_DAYS`).
 - Migración `20261014130000_pool_tokens_dni`: crea las tres tablas, copia los tokens de `DniProviderConfig`
   (mismo cifrado) y elimina la tabla de la spec 003.
+
+### Borradores y conexión con API_UNDC (spec 006)
+
+- **Team.status = `DRAFT`**: equipo guardado y aún no enviado (solo en eventos por salón o ciclo). Conserva su
+  `slot` y `voucherId`. Se excluye de aprobación, tesorería, Contrato 2, panel y clasificaciones. Migración
+  `20261014140000_borrador_de_equipos`: agrega el valor al final del `ENUM` (aditiva; ningún equipo cambia).
+- **UndcApiConfig** (una fila, `id = 1`): `baseUrl`, API key cifrada (`keyCipher`, `keyIv`, `keyTag`,
+  `keyLast4`), `timeoutMs`, `enabled`, `lastStatus` (`OK`|`FAILED`), `lastError`, `lastCheckedAt`,
+  `updatedById`. Migración `20261014150000_config_api_undc`.
 
 ### Pago por salón o ciclo (spec 002)
 

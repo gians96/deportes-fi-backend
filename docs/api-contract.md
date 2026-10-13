@@ -91,6 +91,12 @@ Consulta el padrón **SIVIRENO** (disciplinas de tipo `STUDENT`). **Solo respond
 cuando hay exactamente un resultado** (privacidad). `404` si no hay coincidencia
 única.
 
+**DNI automático** (spec 006): si `buscador` es un código completo (8–12 dígitos) y la conexión con API_UNDC
+está configurada y activa ([Ajustes: conexión con API_UNDC](#ajustes-conexión-con-api_undc)), se consulta primero
+a API_UNDC (`POST /externo/estudiantes/consultar`), que devuelve también el `dni`. Si no está configurada, falla
+o no conoce el código, se usa la búsqueda pública de SIVIRENO (que no trae DNI: `"dni": null`) sin ningún error
+para el usuario.
+
 ### `GET /academic/dni?numero=<8 dígitos>` — `auth`
 Consulta el DNI en los **proveedores configurados** (Decolecta, API Perú; disciplinas de tipo
 `OTHER`), por prioridad y con respaldo automático. Valida que `numero` tenga 8 dígitos. `404` si el
@@ -153,6 +159,27 @@ el valor de un token; solo la consulta manual devuelve un nombre.
 - Errores: `400` (token corto, alias vacío, URL inválida, fecha inválida, DNI mal formado), `404` (token
   inexistente), `503` (sin clave de cifrado), `401`/`403` (sesión o rol).
 - Reemplaza a `/settings/dni-providers` de la spec 003 (nunca desplegada).
+
+---
+
+## Ajustes: conexión con API_UNDC
+
+Conexión con API_UNDC (JP) para traer el DNI al buscar estudiantes por código (spec 006). Una sola fila en la base
+(`UndcApiConfig`); la API key (scope `estudiantes:consultar` de API_UNDC) se guarda **cifrada** (AES-256-GCM, la
+misma clave que los tokens de DNI) y no se devuelve nunca: solo su máscara. Solo `OWNER_SYSTEM`/`ADMIN_SYSTEM`.
+
+| Método | Ruta | Notas |
+| ------ | ---- | ----- |
+| GET    | `/settings/undc-api` | `{ configured, baseUrl, keyMask, timeoutMs, enabled, lastStatus, lastError, lastCheckedAt, updatedAt, encryptionKey }` |
+| PUT    | `/settings/undc-api` | `{ baseUrl, apiKey?, timeoutMs?, enabled? }`; `apiKey` obligatoria la primera vez, vacía conserva la guardada; `timeoutMs` 1000–30000 (por defecto 8000) |
+| POST   | `/settings/undc-api/test` | Consulta un código inexistente: `{ ok, message }`, sin datos personales; guarda el resultado |
+| DELETE | `/settings/undc-api` | 204; quita la conexión (la búsqueda vuelve a la pública, sin DNI) |
+
+La URL (`https://api-jp.episundc.pe`, sin la ruta de un sitio web) se valida contra SSRF: https (http solo hacia
+localhost fuera de producción), sin usuario ni contraseña, y en producción sin destinos internos (IP privadas,
+`localhost`, `*.local`, `*.internal`) tanto literales como resueltos por DNS en cada llamada; no se siguen
+redirecciones. `400` si no cumple; `503` si el servidor no tiene `INTEGRATION_SECRET_KEY` ni `JWT_SECRET` para
+cifrar.
 
 ---
 
@@ -356,6 +383,26 @@ anterior. Cada integrante de `participants` acepta además `"isCaptain": true`.
   esté `VALIDATED` y no acepta equipos `REJECTED`/`CANCELLED` (se registran de nuevo).
   `PATCH /registrations/:id/reject` libera el cupo (`slot = null`).
 
+#### Borradores, edición y envío (spec 006)
+
+Solo para equipos de un salón o ciclo. Un equipo **en borrador** (`status: "DRAFT"`) ocupa su cupo, pero no lo
+ve el tesorero, no se aprueba ni se rechaza, no cuenta en el Contrato 2 ni en clasificaciones, y un comprobante
+validado no lo aprueba.
+
+| Método | Ruta | Quién | Notas |
+| ------ | ---- | ----- | ----- |
+| POST   | `/registrations` con `draft=true` | delegado del grupo o staff | Guarda un borrador: solo exige nombre; valida plazo, `maxTeams`, máximo de jugadores, duplicados, política de género y un solo capitán. El mínimo de jugadores, capitán, DNI y código se exigen al enviar. Un equipo adicional (cupo ≥ 2) sigue exigiendo su comprobante |
+| PATCH  | `/registrations/:id` | delegado (solo borradores, con el evento abierto y antes del cierre) · Owner/Administrador (cualquier estado menos `CANCELLED`) | JSON `{ teamName?, phone?, participants? }`; `participants` **reemplaza** la lista completa. Un equipo enviado o aprobado se valida con las reglas completas y conserva su estado si las cumple |
+| POST   | `/registrations/:id/submit` | delegado del grupo o staff | `DRAFT → PENDING` con las reglas completas; `400` con el motivo si falta algo |
+| DELETE | `/registrations/:id` | delegado del grupo o staff | Solo borradores; libera el cupo. Si era el último equipo de un comprobante adicional pendiente, ese comprobante se elimina; si lo comparte, su monto pasa a tarifa × equipos activos |
+
+Errores: `403` si el actor no es el delegado ni staff, o si el delegado intenta modificar un equipo ya enviado;
+`400` al editar un equipo cancelado, enviar uno que no es borrador o quitar uno que no lo es; `404` equipo
+inexistente. El Tesorero siempre recibe `403`. Un equipo rechazado es definitivo: se registra uno nuevo.
+
+`GET /registrations` no incluye borradores para el Tesorero (ni con `?status=DRAFT`); Owner y Administrador los
+ven. `GET /registrations/mine` los muestra al delegado pero no a los integrantes de otros equipos.
+
 ---
 
 ## Grupos (salón o ciclo)
@@ -387,10 +434,20 @@ del evento (`sectionBase` o `cycleBase`).
   "disciplines": [ { "disciplineId": 7, "name": "Futsal", "teams": [
     { "id": 301, "name": "Los Bits", "slot": 1, "status": "PENDING", "voucherId": 77 } ] } ],
   "extraVouchers": [ { "id": 81, "kind": "EXTRA", "status": "PENDING", "amount": 20,
-    "operationNumber": "124", "imageUrl": "…", "rejectionReason": null, "teamIds": [305] } ] }
+    "operationNumber": "124", "imageUrl": "…", "rejectionReason": null, "teamIds": [305] } ],
+  "draftCount": 0 }
 ```
 
+`draftCount` cuenta los equipos en borrador (el delegado y el staff los ven dentro de `disciplines[].teams` con
+`status: "DRAFT"`). Para el Tesorero valen 0, no lista borradores y omite los comprobantes adicionales que solo
+cubren borradores. Validar un comprobante que solo cubre borradores responde `400` (`"El salón aún no envió ningún
+equipo"`).
+
 Reglas y errores de `POST /groups`:
+- **Un salón o ciclo por estudiante y evento** (spec 006): quien ya es delegado de un grupo activo de ese evento
+  recibe **409** `"Ya inscribiste tu salón o ciclo en este evento…"`. Si su pago general fue rechazado y no quedan
+  equipos vigentes puede inscribir otro. Los equipos adicionales siguen permitidos (pagando) y Owner/Administrador
+  están exentos.
 - Solo eventos `PER_GROUP`, abiertos, con tarifas y con alguna disciplina de estudiantes vigente;
   la escuela debe pertenecer a la facultad del evento.
 - **409** `"Este salón ya está inscrito"` / `"Este ciclo ya está inscrito"` aunque se escriba

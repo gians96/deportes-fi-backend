@@ -104,6 +104,23 @@ guarda el DNI enmascarado. La clave de cifrado es `INTEGRATION_SECRET_KEY` o, si
 Las pruebas que usan `ConfigService` deben usar una configuración falsa: el real cae a `process.env`, donde
 Prisma ya cargó el `.env`.
 
+**Borradores, edición y DNI automático** (`specs/006-borradores-edicion-dni-automatico`,
+[`docs/runbook-borradores-y-padron-jp.md`](./docs/runbook-borradores-y-padron-jp.md)):
+
+- `RegistrationStatus.DRAFT`: equipo de un salón o ciclo guardado y no enviado. Ocupa su cupo, pero **no** se aprueba,
+  rechaza ni cuenta: lo excluyen `GET /registrations` y `GET /groups` para el Tesorero, el panel, el Contrato 2
+  (`/integrations/event/*`, sin campos nuevos) y las clasificaciones. Validar un comprobante solo aprueba equipos
+  `PENDING`. Si añades una consulta por estado de equipo, decide qué hace con `DRAFT`.
+- `PATCH /registrations/:id`, `POST :id/submit`, `DELETE :id`: el delegado (del equipo o de su grupo) solo toca
+  borradores, con el evento abierto y antes del cierre; Owner/Administrador editan cualquier equipo no cancelado
+  con las reglas completas. Las rutas no llevan `@Roles`: la decisión vive en `RegistrationsService`
+  (`assertCanManage`), con pruebas en `registrations.drafts.spec.ts`. Un equipo rechazado sigue siendo definitivo.
+- Un estudiante tiene **un** grupo activo por evento (`GroupsService.create`, 409); el staff está exento.
+- `UndcApiConfig` (`src/undc-api`): conexión con API_UNDC (URL + API key cifrada con `secret-box`, la misma clave que
+  los tokens de DNI) editable en Admin → Integraciones. `AcademicService.findUniqueStudent` consulta primero
+  `POST /externo/estudiantes/consultar` y cae a la búsqueda pública de SIVIRENO. La URL pasa por
+  `common/outbound-url.ts` (anti-SSRF) y nunca se siguen redirecciones. La key y el DNI no van a logs.
+
 **Pago por salón o ciclo** (`specs/002-pago-por-grupo`, eventos con `SportEvent.pricingMode =
 PER_GROUP`; los eventos `PER_DISCIPLINE` no cambian):
 
@@ -167,7 +184,8 @@ verdad de los contratos entre sistemas es
   "Semana Sistémica" (lo cachea 60 s); `payments` y `registrations` quedan disponibles.
 - **Expone** al frontend de deportes-fi: toda la API `/api/v1` con JWT, incluida la gestión de
   tokens `/events/:eventId/api-tokens` (OWNER/ADMIN).
-- **Consume**: SIVIRENO (padrón, `ACADEMIC_API_URL`), Decolecta (RENIEC) y Google Identity.
+- **Consume**: SIVIRENO (padrón, `ACADEMIC_API_URL`), API_UNDC/JP (DNI por código, `UndcApiConfig`), Decolecta
+  (RENIEC) y Google Identity.
   No llama a otros sistemas del ecosistema.
 - **Configuración del flujo**: el token se genera en el frontend (Admin → Eventos → «Tokens
   API») y un administrador del congreso lo registra en su panel (Eventos → Integraciones) con la
@@ -248,7 +266,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni` (reemplazada por la 005), `004-tesorero-y-acceso-por-contrasena`, `005-pool-tokens-dni`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni` (reemplazada por la 005), `004-tesorero-y-acceso-por-contrasena`, `005-pool-tokens-dni`, `006-borradores-edicion-dni-automatico`.
 
 ## Antes de dar por terminado
 
