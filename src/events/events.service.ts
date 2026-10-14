@@ -47,7 +47,7 @@ export class EventsService {
     return this.prisma.sportEvent.create({
       data: {
         name: dto.name,
-        description: sanitizeRichText(dto.description),
+        description: sanitizeRichText(dto.description, 'la descripción'),
         facultyId: dto.facultyId,
         schoolId: dto.schoolId ?? null,
         startDate: new Date(dto.startDate),
@@ -64,7 +64,7 @@ export class EventsService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.description !== undefined && {
-          description: sanitizeRichText(dto.description),
+          description: sanitizeRichText(dto.description, 'la descripción'),
         }),
         ...(dto.facultyId !== undefined && { facultyId: dto.facultyId }),
         ...(dto.schoolId !== undefined && { schoolId: dto.schoolId }),

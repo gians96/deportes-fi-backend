@@ -86,8 +86,8 @@ export class DisciplinesService {
         maxTeams: dto.maxTeams,
         isPaid: dto.isPaid,
         cost: dto.cost !== undefined ? new Prisma.Decimal(dto.cost) : undefined,
-        rulesText: sanitizeRichText(dto.rulesText),
-        extraInfo: sanitizeRichText(dto.extraInfo),
+        rulesText: sanitizeRichText(dto.rulesText, 'las bases'),
+        extraInfo: sanitizeRichText(dto.extraInfo, 'la información adicional'),
         registrationDeadline: new Date(dto.registrationDeadline),
         winPoints: dto.winPoints,
         drawPoints: dto.drawPoints,
@@ -119,10 +119,13 @@ export class DisciplinesService {
         ...(dto.isPaid !== undefined && { isPaid: dto.isPaid }),
         ...(dto.cost !== undefined && { cost: new Prisma.Decimal(dto.cost) }),
         ...(dto.rulesText !== undefined && {
-          rulesText: sanitizeRichText(dto.rulesText),
+          rulesText: sanitizeRichText(dto.rulesText, 'las bases'),
         }),
         ...(dto.extraInfo !== undefined && {
-          extraInfo: sanitizeRichText(dto.extraInfo),
+          extraInfo: sanitizeRichText(
+            dto.extraInfo,
+            'la información adicional',
+          ),
         }),
         ...(dto.registrationDeadline !== undefined && {
           registrationDeadline: new Date(dto.registrationDeadline),
