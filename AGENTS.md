@@ -85,6 +85,10 @@ evento deportivo para la "Semana Sistémica".
 - **Acceso por contraseña** (spec 004): solo cuentas con `User.passwordHash` entran por `POST /auth/login`
   (scrypt, bloqueo por intentos, error único, sesiones con `tv`). El hash y las contraseñas nunca se devuelven
   ni se registran; una cuenta con contraseña conserva su rol al entrar con Google.
+- Textos con formato (`rulesText`, `extraInfo`, `SportEvent.description`) pasan por `sanitizeRichText(valor, 'las bases')`
+  (`src/common/rich-text.ts`): además de limpiar el HTML, mide los **bytes ya limpios** y responde 400 en español si superan
+  `RICH_TEXT_MAX_BYTES` (60 000). Son columnas `TEXT` (65 535 bytes): sin esa validación un texto largo hacía fallar el
+  INSERT y la API respondía 500. Todo campo nuevo de este tipo debe usar el mismo helper.
 - No inhabilitar a un `OWNER_SYSTEM` ni a uno mismo.
 - Inscripción: respetar `registrationDeadline`, mín/máx jugadores, política de
   género, **sin integrantes duplicados** (código/DNI), `maxTeams` y voucher

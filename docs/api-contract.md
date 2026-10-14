@@ -311,6 +311,11 @@ el token en claro se devuelve **una única vez** al crearlo.
 `teamsCount` devuelve la cantidad total de equipos inscritos en la disciplina
 (sin filtrar por estado) para mostrar el avance de cupos en el panel admin.
 
+`rulesText`, `extraInfo` (y `description` de los eventos) son HTML con formato: el servidor deja solo las etiquetas
+permitidas y, ya limpio, exige **≤ 60 000 bytes UTF-8** (las columnas son `TEXT`, 65 535). Si no cabe responde
+`400 { "message": "El texto de las bases es demasiado largo (70.0 KB; el máximo es 60.0 KB). Acórtalo e inténtalo de nuevo." }`
+en vez de fallar con 500. Aplica a `POST` y `PATCH` de `/disciplines` y `/events`.
+
 ---
 
 ## Registrations (equipos)
