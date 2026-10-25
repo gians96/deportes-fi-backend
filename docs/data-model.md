@@ -13,7 +13,7 @@ Provider: `mysql` (MariaDB externa). Fuente de verdad:
 | `GenderPolicy`       | `MALE`, `FEMALE`, `MIXED`, `FREE` |
 | `CompetitionFormat`  | `ELIMINATION`, `POINTS` |
 | `ParticipantType`    | `STUDENT`, `OTHER` |
-| `RegistrationStatus` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `DRAFT` (spec 006) |
+| `RegistrationStatus` | `PENDING`, `APPROVED`, `REJECTED`, `CANCELLED`, `DRAFT` (spec 006), `OBSERVED` (spec 007) |
 | `VoucherStatus`      | `PENDING`, `VALIDATED`, `REJECTED` |
 | `PricingMode`        | `PER_DISCIPLINE` (por defecto), `PER_GROUP` |
 | `GroupScope`         | `SECTION`, `CYCLE` |
@@ -59,7 +59,7 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
   `allowDraw` configuran el cálculo de la tabla. `matchDurationMinutes` (default 30)
   y `courtsCount` (lozas disponibles, default 1) alimentan al programador de
   horarios (`POST /scheduling/round-one`).
-- **Team**: nace `PENDING`; `rejectionReason` cuando se rechaza.
+- **Team**: nace `PENDING`; `rejectionReason` cuando se rechaza y `observation` cuando está `OBSERVED` (spec 007).
 - **Participant**: guarda `fullName`/`studentCode`/`dni` (snapshot del padrón) y
   puede vincularse a un `User` real vía `userId`. El vínculo se crea
   automáticamente al inscribir un equipo y al loguear/completar perfil, casando
@@ -116,6 +116,16 @@ User 0/1 ──* Participant (vínculo opcional al usuario real)
 - **UndcApiConfig** (una fila, `id = 1`): `baseUrl`, API key cifrada (`keyCipher`, `keyIv`, `keyTag`,
   `keyLast4`), `timeoutMs`, `enabled`, `lastStatus` (`OK`|`FAILED`), `lastError`, `lastCheckedAt`,
   `updatedById`. Migración `20261014150000_config_api_undc`.
+
+### Edición manual y estado Observado (spec 007)
+
+- **Team.status = `OBSERVED`**: equipo devuelto al delegado con una observación. A diferencia de `REJECTED`/`CANCELLED`
+  conserva su `slot` y su `voucherId`. El delegado lo edita y lo reenvía (`PENDING`) sin plazo; el staff puede pasar un
+  equipo a cualquier estado (`PATCH /registrations/:id/status`). No se aprueba en bloque al validar un comprobante.
+  El Contrato 2 lo informa como `PENDING`.
+- **Team.observation** (`TEXT` nulo, ≤ 500 caracteres validados en el DTO): texto de la observación; se limpia al cambiar
+  de estado o al reenviar. Migración `20261024120000_estado_observado`: agrega el valor al final del `ENUM` y la columna
+  (aditiva; ningún equipo cambia). Ver [`runbook-estado-observado.md`](./runbook-estado-observado.md).
 
 ### Pago por salón o ciclo (spec 002)
 

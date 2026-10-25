@@ -125,6 +125,23 @@ Prisma ya cargó el `.env`.
   `POST /externo/estudiantes/consultar` y cae a la búsqueda pública de SIVIRENO. La URL pasa por
   `common/outbound-url.ts` (anti-SSRF) y nunca se siguen redirecciones. La key y el DNI no van a logs.
 
+**Edición manual y estado Observado** (`specs/007-edicion-manual-inscripciones`,
+[`docs/runbook-estado-observado.md`](./docs/runbook-estado-observado.md)):
+
+- `RegistrationStatus.OBSERVED` + `Team.observation`: el staff devuelve un equipo al delegado para que lo corrija. A
+  diferencia de `REJECTED`/`CANCELLED` **conserva** `slot` y comprobante. El delegado lo edita (`PATCH`) y lo reenvía
+  (`POST :id/submit` → `PENDING`) **sin plazo ni evento abierto**; no lo puede quitar. `assertCanManage` deja al delegado
+  actuar sobre `DRAFT` y `OBSERVED`. Si añades una consulta por estado de equipo, decide también qué hace con `OBSERVED`.
+- `PATCH /registrations/:id/status` (solo Owner/Administrador, `RegistrationsService.setStatus`): cualquier estado menos
+  `DRAFT`; `REJECTED` y `OBSERVED` exigen motivo; `APPROVED` conserva las reglas de `approve` (no hay «forzar aprobación»);
+  rechazar/cancelar liberan el cupo y salir de ahí lo recupera (`nextFreeSlot`). Un rechazo ya no es definitivo **para el
+  staff** (sí para el delegado).
+- `PATCH /vouchers/:id/reopen` y `PATCH /vouchers/:id` (solo staff): reabrir un comprobante (los equipos aprobados con él
+  vuelven a `PENDING`) y corregir N.º de operación y monto a mano. El monto manual es la única excepción a «los montos los
+  calcula el servidor».
+- `DELETE /registrations/:id` del staff borra en cualquier estado, salvo que el equipo figure en un partido.
+- Contrato 2: `OBSERVED` se informa como `PENDING`; **no** se agregan valores ni campos.
+
 **Pago por salón o ciclo** (`specs/002-pago-por-grupo`, eventos con `SportEvent.pricingMode =
 PER_GROUP`; los eventos `PER_DISCIPLINE` no cambian):
 
@@ -270,7 +287,7 @@ toques archivos de la carpeta padre `deportes-fi/`.
 - En Claude Code: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → `/speckit-tasks` →
   `/speckit-analyze` → `/speckit-implement` (`/speckit-converge` agrega lo que falte). Los scripts
   están en `.specify/scripts/powershell/`.
-- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni` (reemplazada por la 005), `004-tesorero-y-acceso-por-contrasena`, `005-pool-tokens-dni`, `006-borradores-edicion-dni-automatico`.
+- Specs: `001-tokens-api-por-evento`, `002-pago-por-grupo`, `003-proveedores-dni` (reemplazada por la 005), `004-tesorero-y-acceso-por-contrasena`, `005-pool-tokens-dni`, `006-borradores-edicion-dni-automatico`, `007-edicion-manual-inscripciones`.
 
 ## Antes de dar por terminado
 

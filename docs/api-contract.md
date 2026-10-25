@@ -322,11 +322,12 @@ en vez de fallar con 500. Aplica a `POST` y `PATCH` de `/disciplines` y `/events
 
 | Método | Ruta                         | Auth  | Notas |
 | ------ | ---------------------------- | ----- | ----- |
-| GET    | `/registrations?status=`     | pagos | `status` ∈ `PENDING\|APPROVED\|REJECTED\|CANCELLED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=&isPaid=&participantType=` |
+| GET    | `/registrations?status=`     | pagos | `status` ∈ `PENDING\|APPROVED\|REJECTED\|CANCELLED\|OBSERVED` (y `DRAFT` para el staff); filtros `?eventId=&facultyId=&schoolId=&disciplineId=&isPaid=&participantType=` |
 | GET    | `/registrations/mine`        | auth  | Equipos donde el usuario es **delegado o integrante** (match por `userId`) |
 | POST   | `/registrations`             | auth  | **multipart/form-data** ver ↓ |
 | PATCH  | `/registrations/:id/approve` | admin | |
 | PATCH  | `/registrations/:id/reject`  | admin | `{ "reason": "…" }` |
+| PATCH  | `/registrations/:id/status`  | admin | `{ "status": "PENDING\|APPROVED\|REJECTED\|OBSERVED\|CANCELLED", "reason"?: "…" }` — cambio manual de estado (spec 007) ↓ |
 
 > El panel principal de administración es `/admin/inscripciones`. Allí se
 > gestionan equipos gratuitos y de pago en un solo flujo. Para pagos, el modal
@@ -385,7 +386,8 @@ anterior. Cada integrante de `participants` acepta además `"isCaptain": true`.
   (el staff puede), `409` si dos solicitudes pelean el mismo cupo y se agotan los reintentos.
 - La respuesta es el equipo con `participants` y `voucher`, más `groupId` y `slot`.
 - `PATCH /registrations/:id/approve` exige que el voucher que cubre al equipo (base o extra)
-  esté `VALIDATED` y no acepta equipos `REJECTED`/`CANCELLED` (se registran de nuevo).
+  esté `VALIDATED` y no acepta equipos `REJECTED`/`CANCELLED` (para esos casos el staff usa
+  `PATCH /registrations/:id/status`, spec 007).
   `PATCH /registrations/:id/reject` libera el cupo (`slot = null`).
 
 #### Borradores, edición y envío (spec 006)
@@ -397,16 +399,47 @@ validado no lo aprueba.
 | Método | Ruta | Quién | Notas |
 | ------ | ---- | ----- | ----- |
 | POST   | `/registrations` con `draft=true` | delegado del grupo o staff | Guarda un borrador: solo exige nombre; valida plazo, `maxTeams`, máximo de jugadores, duplicados, política de género y un solo capitán. El mínimo de jugadores, capitán, DNI y código se exigen al enviar. Un equipo adicional (cupo ≥ 2) sigue exigiendo su comprobante |
-| PATCH  | `/registrations/:id` | delegado (solo borradores, con el evento abierto y antes del cierre) · Owner/Administrador (cualquier estado menos `CANCELLED`) | JSON `{ teamName?, phone?, participants? }`; `participants` **reemplaza** la lista completa. Un equipo enviado o aprobado se valida con las reglas completas y conserva su estado si las cumple |
-| POST   | `/registrations/:id/submit` | delegado del grupo o staff | `DRAFT → PENDING` con las reglas completas; `400` con el motivo si falta algo |
-| DELETE | `/registrations/:id` | delegado del grupo o staff | Solo borradores; libera el cupo. Si era el último equipo de un comprobante adicional pendiente, ese comprobante se elimina; si lo comparte, su monto pasa a tarifa × equipos activos |
+| PATCH  | `/registrations/:id` | delegado (borradores, con el evento abierto y antes del cierre; y equipos `OBSERVED` sin plazo) · Owner/Administrador (cualquier estado menos `CANCELLED`) | JSON `{ teamName?, phone?, participants?, delegateId?, cycle?, section? }` (los tres últimos, solo staff; ver spec 007); `participants` **reemplaza** la lista completa. Un equipo enviado o aprobado se valida con las reglas completas y conserva su estado si las cumple |
+| POST   | `/registrations/:id/submit` | delegado del grupo o staff | `DRAFT\|OBSERVED → PENDING` con las reglas completas (limpia la observación); `400` con el motivo si falta algo |
+| DELETE | `/registrations/:id` | delegado del grupo (solo borradores) · staff (cualquier estado, spec 007) | Libera el cupo. Si era el último equipo de un comprobante adicional pendiente, ese comprobante se elimina; si lo comparte, su monto pasa a tarifa × equipos activos |
 
 Errores: `403` si el actor no es el delegado ni staff, o si el delegado intenta modificar un equipo ya enviado;
 `400` al editar un equipo cancelado, enviar uno que no es borrador o quitar uno que no lo es; `404` equipo
-inexistente. El Tesorero siempre recibe `403`. Un equipo rechazado es definitivo: se registra uno nuevo.
+inexistente. El Tesorero siempre recibe `403`. Un equipo rechazado es definitivo para el delegado (registra uno nuevo);
+el staff puede restaurarlo con `PATCH /registrations/:id/status` (spec 007).
 
 `GET /registrations` no incluye borradores para el Tesorero (ni con `?status=DRAFT`); Owner y Administrador los
 ven. `GET /registrations/mine` los muestra al delegado pero no a los integrantes de otros equipos.
+
+#### Edición manual y estado Observado (spec 007)
+
+Solo Owner y Administrador. Permite corregir un «aprobar» o «rechazar» equivocado, devolver el equipo al delegado
+para que lo corrija y eliminarlo.
+
+`PATCH /registrations/:id/status` — `{ "status": "PENDING|APPROVED|REJECTED|OBSERVED|CANCELLED", "reason"?: string (≤ 500) }`
+
+| Destino | Efecto |
+| ------- | ------ |
+| `PENDING` | Vuelve a revisión; limpia `rejectionReason` y `observation`. Conserva `slot` y comprobante |
+| `APPROVED` | Mismas reglas que `approve`: bases cumplidas y comprobante que lo cubre `VALIDATED` |
+| `REJECTED` | Exige `reason` (→ `rejectionReason`); libera el cupo del salón o ciclo (`slot = null`) |
+| `OBSERVED` | Exige `reason` (→ `observation`, visible al delegado). **Conserva** el cupo y el comprobante |
+| `CANCELLED` | Libera el cupo; el equipo ya no cuenta ni se puede editar |
+
+- Salir de `REJECTED`/`CANCELLED` en un equipo de salón o ciclo vuelve a tomar el menor cupo libre; si solo queda libre
+  uno adicional (≥ 2) y el equipo lo cubre el pago base, responde `400` (hace falta un comprobante adicional).
+- `DRAFT` no es destino válido (`400`), un borrador no cambia de estado, y pedir el estado actual responde `400`.
+- **Equipo `OBSERVED`**: el delegado (del equipo o de su salón) lo edita con `PATCH /registrations/:id` (validación
+  relajada, como un borrador) y lo reenvía con `POST /registrations/:id/submit` (reglas completas, pasa a `PENDING`),
+  **sin exigir plazo ni evento abierto**. No puede quitarlo. Validar el voucher propio (flujo por disciplina) de un equipo
+  observado responde `400`; un pago base/adicional no lo aprueba en bloque.
+- `PATCH /registrations/:id` acepta además, solo del staff, `delegateId`, `cycle` y `section` (estos dos solo en equipos
+  sin salón o ciclo: en los demás los define el grupo → `400`; si un delegado los envía → `403`).
+- `DELETE /registrations/:id` del staff funciona en cualquier estado y responde `400` si el equipo figura en algún
+  partido (primero se quita del fixture). Un comprobante adicional `PENDING` que queda sin equipos se elimina; uno ya
+  revisado se conserva (el dinero recibido sigue registrado).
+- `GET /registrations` y `/registrations/mine` traen `observation` (texto o `null`). Contrato 2: un equipo `OBSERVED` se
+  informa como `PENDING` (sin valores ni campos nuevos).
 
 ---
 
@@ -437,7 +470,8 @@ del evento (`sectionBase` o `cycleBase`).
   "baseVoucher": { "id": 77, "kind": "BASE", "status": "PENDING", "amount": 100,
     "operationNumber": "123456", "imageUrl": "/uploads/vouchers/…", "rejectionReason": null },
   "disciplines": [ { "disciplineId": 7, "name": "Futsal", "teams": [
-    { "id": 301, "name": "Los Bits", "slot": 1, "status": "PENDING", "voucherId": 77 } ] } ],
+    { "id": 301, "name": "Los Bits", "slot": 1, "status": "PENDING", "rejectionReason": null,
+      "observation": null, "voucherId": 77 } ] } ],
   "extraVouchers": [ { "id": 81, "kind": "EXTRA", "status": "PENDING", "amount": 20,
     "operationNumber": "124", "imageUrl": "…", "rejectionReason": null, "teamIds": [305] } ],
   "draftCount": 0 }
@@ -472,6 +506,8 @@ Reglas y errores de `POST /groups`:
 | GET    | `/vouchers?status=`       | pagos | `status` ∈ `PENDING\|VALIDATED\|REJECTED`; filtros `?eventId=&facultyId=&schoolId=&disciplineId=` |
 | PATCH  | `/vouchers/:id/validate`  | pagos | — |
 | PATCH  | `/vouchers/:id/reject`    | pagos | `{ "reason": "…" }` |
+| PATCH  | `/vouchers/:id/reopen`    | admin | — (spec 007) |
+| PATCH  | `/vouchers/:id`           | admin | `{ "operationNumber"?: string, "amount"?: number }` (spec 007) |
 | PATCH  | `/vouchers/:id/replace`   | delegado del grupo/equipo o admin | **multipart**: `voucher` (imagen) y `operationNumber`; solo si está `REJECTED` |
 
 Cada elemento de la lista incluye datos del equipo y de la disciplina para la
@@ -492,6 +528,11 @@ históricos describen el primer equipo (vacíos si todavía no cubre ninguno).
   equipos responde `400 "El salón aún no registra equipos"`. Validar de nuevo aprueba los equipos
   que se sumaron después. Un voucher `TEAM` se valida como siempre.
 - `reject` de un `BASE`/`EXTRA` devuelve a `PENDING` los equipos que había aprobado.
+- `reopen` (solo Owner/Administrador): deshace una validación o un rechazo equivocado. El voucher vuelve a `PENDING`
+  (limpia `validatedById` y el motivo) y los equipos `APPROVED` que cubre —por `Team.voucherId` o por el `Voucher.teamId`
+  histórico— vuelven a `PENDING`; los demás estados no cambian. `400` si ya está `PENDING`.
+- `PATCH /vouchers/:id` (solo Owner/Administrador): corrige el N.º de operación (cadena vacía lo borra) y/o el monto (≥ 0,
+  2 decimales). Es una corrección manual deliberada: no recalcula tarifas ni cambia estados.
 - `replace`: conserva el `id` y los equipos que cubre; vuelve a `PENDING` y limpia el motivo.
   `403` si no es el responsable, `400` si no está rechazado.
 
@@ -662,6 +703,8 @@ Reglas:
   por `id`). Página fuera de rango → `data: []` con el `total` real.
 - `status` inválido, `page` < 1 o `pageSize` fuera de 1–100 → `400` con el formato
   estándar de validación de Nest.
+- Un equipo `OBSERVED` (spec 007: devuelto al delegado para corregirlo) se informa como `PENDING` en `teams`,
+  `byDiscipline` y `registrations`, y `?status=PENDING` también lo trae; el contrato no gana valores ni campos.
 - Ninguna respuesta incluye correos, DNI, códigos de estudiante, teléfonos,
   nombres de integrantes ni URLs de vouchers.
 
