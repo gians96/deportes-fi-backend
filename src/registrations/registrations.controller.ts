@@ -22,6 +22,7 @@ import {
   UpdateRegistrationDto,
 } from './dto/create-registration.dto';
 import { RejectDto } from './dto/reject.dto';
+import { SetStatusDto } from './dto/set-status.dto';
 import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -113,7 +114,7 @@ export class RegistrationsController {
     return this.registrations.create(user.id, dto, voucherPath, delegateId);
   }
 
-  /** Edita un equipo: el delegado solo sus borradores; owner y administrador cualquiera (lo decide el servicio). */
+  /** Edita un equipo: el delegado sus borradores y los equipos observados; owner y administrador cualquiera (lo decide el servicio). */
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(
@@ -124,7 +125,7 @@ export class RegistrationsController {
     return this.registrations.update(user, id, dto);
   }
 
-  /** «Enviar»: pasa un borrador a PENDIENTE (con las reglas completas). */
+  /** «Enviar»: pasa un borrador (o un equipo observado ya corregido) a PENDIENTE, con las reglas completas. */
   @UseGuards(JwtAuthGuard)
   @Post(':id/submit')
   submit(
@@ -134,7 +135,7 @@ export class RegistrationsController {
     return this.registrations.submit(user, id);
   }
 
-  /** Quita un borrador y libera su cupo. */
+  /** Quita un equipo y libera su cupo: el delegado solo borradores; owner y administrador cualquier estado. */
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(
@@ -156,5 +157,16 @@ export class RegistrationsController {
   @Patch(':id/reject')
   reject(@Param('id', ParseIntPipe) id: number, @Body() dto: RejectDto) {
     return this.registrations.reject(id, dto.reason);
+  }
+
+  /**
+   * Cambio manual de estado (corregir un «aprobar» equivocado, observar, restaurar un rechazo, cancelar).
+   * Solo owner y administrador; `REJECTED` y `OBSERVED` exigen `reason`.
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.OWNER_SYSTEM, Role.ADMIN_SYSTEM)
+  @Patch(':id/status')
+  setStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: SetStatusDto) {
+    return this.registrations.setStatus(id, dto);
   }
 }

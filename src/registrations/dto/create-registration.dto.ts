@@ -3,9 +3,11 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Gender } from '@prisma/client';
@@ -101,6 +103,25 @@ export class UpdateRegistrationDto {
   @IsString()
   @MaxLength(30)
   phone?: string;
+
+  /** Solo Owner/Administrador: cambia el delegado responsable del equipo. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  delegateId?: number;
+
+  /** Solo Owner/Administrador y solo en equipos sin salón o ciclo (en los demás los define el grupo). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  cycle?: string | null;
+
+  /** Ver `cycle`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  section?: string | null;
 
   @IsOptional()
   @IsArray()

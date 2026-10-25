@@ -122,6 +122,18 @@ describe('matriz de roles', () => {
     }
   });
 
+  it('cambiar el estado de un equipo y corregir o reabrir comprobantes (spec 007) son solo de Owner y Administrador', () => {
+    for (const route of [
+      'RegistrationsController.setStatus',
+      'VouchersController.reopen',
+      'VouchersController.update',
+    ]) {
+      expect([...(routes.get(route) ?? [])].sort()).toEqual(
+        [...STAFF_ROLES].sort(),
+      );
+    }
+  });
+
   it('las rutas de gestión de usuarios solo son de Owner y Administrador', () => {
     for (const [route, roles] of routes) {
       if (route.startsWith('UsersController.')) {

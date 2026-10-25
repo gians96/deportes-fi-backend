@@ -29,6 +29,7 @@ export class AdminService {
 
     const statusOrder: RegistrationStatus[] = [
       RegistrationStatus.PENDING,
+      RegistrationStatus.OBSERVED,
       RegistrationStatus.APPROVED,
       RegistrationStatus.REJECTED,
       RegistrationStatus.CANCELLED,
@@ -39,6 +40,7 @@ export class AdminService {
       REJECTED: 'Rechazados',
       CANCELLED: 'Cancelados',
       DRAFT: 'Borradores',
+      OBSERVED: 'Observados',
     };
 
     const countMap = new Map<RegistrationStatus, number>();

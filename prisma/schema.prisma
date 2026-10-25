@@ -55,6 +55,9 @@ enum RegistrationStatus {
   /// Equipo guardado por el delegado y aún no enviado (spec 006): ocupa su cupo, pero no lo ve el tesorero,
   /// no se aprueba y no cuenta en el Contrato 2. Solo existe en eventos por salón o ciclo.
   DRAFT
+  /// Equipo devuelto al delegado con una observación (spec 007): conserva su cupo y su comprobante, y el delegado puede
+  /// corregirlo y reenviarlo (vuelve a PENDING) aunque el plazo haya vencido. El Contrato 2 lo informa como PENDING.
+  OBSERVED
 }
 
 enum VoucherStatus {
@@ -264,6 +267,8 @@ model Team {
   phone           String?
   status          RegistrationStatus @default(PENDING)
   rejectionReason String?            @db.Text
+  /// Observación del administrador mientras el equipo está OBSERVED (spec 007); se limpia al reenviarlo.
+  observation     String?            @db.Text
   groupId         Int?
   group           ClassGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
   voucherId       Int?

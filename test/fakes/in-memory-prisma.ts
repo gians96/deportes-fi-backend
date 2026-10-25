@@ -518,11 +518,17 @@ function assertKeys(where: Row, allowed: string[], path: string): void {
   }
 }
 
-/** `status` como valor exacto o `{ not: valor }` (borradores fuera del Contrato 2, spec 006). */
+/**
+ * `status` como valor exacto, `{ not: valor }` (borradores fuera del Contrato 2, spec 006) o
+ * `{ in: [valores] }` (los observados se informan como pendientes, spec 007).
+ */
 function matchesStatus(status: unknown, filter: unknown): boolean {
   if (filter === undefined) return true;
   if (filter && typeof filter === 'object' && 'not' in filter) {
     return status !== filter.not;
+  }
+  if (filter && typeof filter === 'object' && 'in' in filter) {
+    return (filter.in as unknown[]).includes(status);
   }
   return status === filter;
 }

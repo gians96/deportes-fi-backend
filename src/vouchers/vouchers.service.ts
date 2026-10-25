@@ -17,6 +17,7 @@ import { STAFF_ROLES } from '../common/roles';
 import { groupLabel } from '../groups/group-normalize';
 import { assertGroupRoster } from '../groups/group-roster';
 import { PrismaService } from '../prisma/prisma.service';
+import { UpdateVoucherDto } from './dto/update-voucher.dto';
 
 const nameRef = { select: { id: true, name: true } } as const;
 
@@ -301,6 +302,11 @@ export class VouchersService {
         'Este comprobante no corresponde a un solo equipo',
       );
     }
+    if (team.status === RegistrationStatus.OBSERVED) {
+      throw new BadRequestException(
+        'El equipo está observado: el delegado debe corregirlo y reenviarlo antes de validar su comprobante',
+      );
+    }
     this.validateTeamRules(team);
 
     return this.prisma.$transaction(async (tx) => {
@@ -399,6 +405,68 @@ export class VouchersService {
         data: { status: RegistrationStatus.PENDING },
       });
       return updated;
+    });
+  }
+
+  /**
+   * Deshace una validación o un rechazo equivocado: el comprobante vuelve a PENDING y los equipos que
+   * se aprobaron gracias a él regresan a PENDING (los demás estados no cambian). Solo el staff.
+   */
+  async reopen(id: number) {
+    const voucher = await this.prisma.voucher.findUnique({ where: { id } });
+    if (!voucher) throw new NotFoundException('Comprobante no encontrado');
+    if (voucher.status === VoucherStatus.PENDING) {
+      throw new BadRequestException('El comprobante ya está pendiente');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.voucher.update({
+        where: { id },
+        data: {
+          status: VoucherStatus.PENDING,
+          rejectionReason: null,
+          validatedById: null,
+        },
+      });
+      await tx.team.updateMany({
+        where: { voucherId: id, status: RegistrationStatus.APPROVED },
+        data: { status: RegistrationStatus.PENDING },
+      });
+      // Comprobantes anteriores al pago por grupo: solo apuntan al equipo por `Voucher.teamId`.
+      if (voucher.teamId !== null) {
+        await tx.team.updateMany({
+          where: {
+            id: { in: [voucher.teamId] },
+            status: RegistrationStatus.APPROVED,
+          },
+          data: { status: RegistrationStatus.PENDING },
+        });
+      }
+      return updated;
+    });
+  }
+
+  /**
+   * Corrige a mano el N.º de operación y/o el monto de un comprobante (solo el staff). El monto de un
+   * pago base o adicional lo calcula el servidor desde las tarifas al crearlo; esta es la única vía para
+   * ajustarlo cuando el delegado pagó otra cantidad, y no toca el estado del comprobante ni de los equipos.
+   */
+  async update(id: number, dto: UpdateVoucherDto) {
+    const voucher = await this.prisma.voucher.findUnique({ where: { id } });
+    if (!voucher) throw new NotFoundException('Comprobante no encontrado');
+    if (dto.operationNumber === undefined && dto.amount === undefined) {
+      throw new BadRequestException('Indica el N.º de operación o el monto');
+    }
+    return this.prisma.voucher.update({
+      where: { id },
+      data: {
+        ...(dto.operationNumber !== undefined && {
+          operationNumber: dto.operationNumber.trim() || null,
+        }),
+        ...(dto.amount !== undefined && {
+          amount: new Prisma.Decimal(dto.amount),
+        }),
+      },
     });
   }
 

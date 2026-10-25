@@ -24,6 +24,7 @@ export const groupDetailInclude = {
       slot: true,
       status: true,
       rejectionReason: true,
+      observation: true,
       voucherId: true,
       disciplineId: true,
     },
@@ -70,6 +71,8 @@ export interface GroupDetail {
       status: RegistrationStatus;
       /** Motivo con el que se rechazó el equipo (solo cuando está `REJECTED`). */
       rejectionReason: string | null;
+      /** Observación del administrador (solo cuando está `OBSERVED`). */
+      observation: string | null;
       voucherId: number | null;
     }[];
   }[];
@@ -113,6 +116,7 @@ export function isActiveGroup(group: {
   return group.teams.some(
     (team) =>
       team.status === RegistrationStatus.PENDING ||
+      team.status === RegistrationStatus.OBSERVED ||
       team.status === RegistrationStatus.APPROVED,
   );
 }
@@ -137,6 +141,7 @@ export function toGroupDetail(
       slot: team.slot,
       status: team.status,
       rejectionReason: team.rejectionReason ?? null,
+      observation: team.observation ?? null,
       voucherId: team.voucherId,
     });
     teamsByDiscipline.set(team.disciplineId, list);

@@ -584,3 +584,130 @@ describe('VouchersService.findAll', () => {
     expect(await service.findAll({ facultyId: 2 })).toEqual([]);
   });
 });
+
+describe('VouchersService.reopen', () => {
+  it('deshace una validación: el pago vuelve a PENDING y los equipos que aprobó también', async () => {
+    const { prisma, service, status, voucher } = build();
+    await service.validate(BASE, ADMIN_ID);
+    prisma.data.teams.find((t) => t.id === 3)!.status =
+      RegistrationStatus.REJECTED;
+
+    const result = await service.reopen(BASE);
+
+    expect(result).toMatchObject({
+      status: VoucherStatus.PENDING,
+      validatedById: null,
+      rejectionReason: null,
+    });
+    expect(voucher(BASE).status).toBe(VoucherStatus.PENDING);
+    expect(status(1)).toBe(RegistrationStatus.PENDING);
+    expect(status(2)).toBe(RegistrationStatus.PENDING);
+    // Un equipo rechazado no se toca, ni el de otro comprobante.
+    expect(status(3)).toBe(RegistrationStatus.REJECTED);
+    expect(status(4)).toBe(RegistrationStatus.PENDING);
+  });
+
+  it('un comprobante adicional afecta solo a sus equipos', async () => {
+    const { service, status } = build();
+    await service.validate(BASE, ADMIN_ID);
+    await service.validate(EXTRA, ADMIN_ID);
+
+    await service.reopen(EXTRA);
+
+    expect(status(4)).toBe(RegistrationStatus.PENDING);
+    expect(status(1)).toBe(RegistrationStatus.APPROVED);
+  });
+
+  it('reabre un rechazo equivocado sin cambiar el estado de los equipos', async () => {
+    const { service, status, voucher } = build();
+    await service.reject(BASE, 'Me equivoqué', ADMIN_ID);
+
+    await service.reopen(BASE);
+
+    expect(voucher(BASE)).toMatchObject({
+      status: VoucherStatus.PENDING,
+      rejectionReason: null,
+    });
+    expect(status(1)).toBe(RegistrationStatus.PENDING);
+  });
+
+  it('un voucher TEAM validado deja de aprobar al equipo', async () => {
+    const { service, status, voucher } = build();
+    await service.validate(TEAM_VOUCHER, ADMIN_ID);
+    expect(status(50)).toBe(RegistrationStatus.APPROVED);
+
+    await service.reopen(TEAM_VOUCHER);
+
+    expect(voucher(TEAM_VOUCHER).status).toBe(VoucherStatus.PENDING);
+    expect(status(50)).toBe(RegistrationStatus.PENDING);
+  });
+
+  it('también alcanza al equipo de un comprobante anterior al pago por grupo (solo Voucher.teamId)', async () => {
+    const { prisma, service, status } = build();
+    await service.validate(TEAM_VOUCHER, ADMIN_ID);
+    prisma.data.teams.find((t) => t.id === 50)!.voucherId = null;
+
+    await service.reopen(TEAM_VOUCHER);
+
+    expect(status(50)).toBe(RegistrationStatus.PENDING);
+  });
+
+  it('rechaza reabrir un comprobante que ya está pendiente y responde 404 si no existe', async () => {
+    const { service } = build();
+    await expect(service.reopen(BASE)).rejects.toThrow(/ya está pendiente/);
+    await expect(service.reopen(999)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('VouchersService.update', () => {
+  it('corrige el N.º de operación y el monto sin tocar estados', async () => {
+    const { service, status, voucher } = build();
+    await service.validate(BASE, ADMIN_ID);
+
+    await service.update(BASE, { operationNumber: ' 998877 ', amount: 90.5 });
+
+    expect(voucher(BASE).operationNumber).toBe('998877');
+    expect(Number(voucher(BASE).amount)).toBe(90.5);
+    expect(voucher(BASE).status).toBe(VoucherStatus.VALIDATED);
+    expect(status(1)).toBe(RegistrationStatus.APPROVED);
+  });
+
+  it('una cadena vacía borra el N.º de operación', async () => {
+    const { service, voucher } = build();
+    await service.update(BASE, { operationNumber: '  ' });
+    expect(voucher(BASE).operationNumber).toBeNull();
+  });
+
+  it('exige al menos un dato y que el comprobante exista', async () => {
+    const { service } = build();
+    await expect(service.update(BASE, {})).rejects.toThrow(BadRequestException);
+    await expect(service.update(999, { amount: 1 })).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
+describe('VouchersService.validate con equipos observados', () => {
+  it('un voucher TEAM de un equipo observado no se valida (no lo aprueba por la puerta de atrás)', async () => {
+    const { prisma, service, status, voucher } = build();
+    prisma.data.teams.find((t) => t.id === 50)!.status =
+      RegistrationStatus.OBSERVED;
+
+    await expect(service.validate(TEAM_VOUCHER, ADMIN_ID)).rejects.toThrow(
+      /observado/,
+    );
+    expect(voucher(TEAM_VOUCHER).status).toBe(VoucherStatus.PENDING);
+    expect(status(50)).toBe(RegistrationStatus.OBSERVED);
+  });
+
+  it('al validar un pago base el equipo observado no se aprueba', async () => {
+    const { prisma, service, status } = build();
+    prisma.data.teams.find((t) => t.id === 2)!.status =
+      RegistrationStatus.OBSERVED;
+
+    const result = await service.validate(BASE, ADMIN_ID);
+
+    expect(result.approvedTeamIds).toEqual([1, 3]);
+    expect(status(2)).toBe(RegistrationStatus.OBSERVED);
+  });
+});

@@ -122,7 +122,15 @@ export interface FakeGroupTeamRow {
   section?: string | null;
   phone?: string | null;
   rejectionReason?: string | null;
+  observation?: string | null;
   participants?: FakeParticipantRow[];
+}
+
+/** Partido del fixture que referencia equipos (solo lo que usa `match.count`). */
+export interface FakeMatchRow {
+  homeTeamId: number | null;
+  awayTeamId: number | null;
+  winnerTeamId: number | null;
 }
 
 export interface GroupsDataset {
@@ -132,6 +140,8 @@ export interface GroupsDataset {
   groups: FakeGroupRow[];
   vouchers: FakeGroupVoucherRow[];
   teams: FakeGroupTeamRow[];
+  /** Partidos del fixture; si falta, ningún equipo figura en uno. */
+  matches?: FakeMatchRow[];
 }
 
 type Row = Record<string, unknown>;
@@ -445,6 +455,21 @@ export class GroupsPrisma {
       if (!team) return Promise.reject(new Error('Team not found'));
       Object.assign(team, data);
       return Promise.resolve({ ...team });
+    },
+  };
+
+  readonly match = {
+    count: ({ where }: { where: { OR: Array<Record<string, number>> } }) => {
+      const matches = this.data.matches ?? [];
+      return Promise.resolve(
+        matches.filter((m) =>
+          where.OR.some((clause) =>
+            Object.entries(clause).every(
+              ([key, value]) => m[key as keyof FakeMatchRow] === value,
+            ),
+          ),
+        ).length,
+      );
     },
   };
 

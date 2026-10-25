@@ -19,7 +19,8 @@ import { voucherMulterOptions } from '../common/upload/voucher-upload.options';
 import { RejectDto } from '../registrations/dto/reject.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { PAYMENT_ROLES } from '../common/roles';
+import { PAYMENT_ROLES, STAFF_ROLES } from '../common/roles';
+import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
   CurrentUser,
@@ -64,6 +65,20 @@ export class VouchersController {
     @CurrentUser() user: RequestUser,
   ) {
     return this.vouchers.reject(id, dto.reason, user.id);
+  }
+
+  /** Deshace una validación o un rechazo equivocado: vuelve a PENDING (y los equipos aprobados con él, también). */
+  @Roles(...STAFF_ROLES)
+  @Patch(':id/reopen')
+  reopen(@Param('id', ParseIntPipe) id: number) {
+    return this.vouchers.reopen(id);
+  }
+
+  /** Corrige el N.º de operación y/o el monto del comprobante. */
+  @Roles(...STAFF_ROLES)
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateVoucherDto) {
+    return this.vouchers.update(id, dto);
   }
 
   /**

@@ -259,6 +259,52 @@ describe('IntegrationsService', () => {
     });
   });
 
+  describe('equipos observados (spec 007)', () => {
+    /** Pasa a OBSERVED un equipo pendiente del evento A y devuelve su id. */
+    async function observeOnePending(): Promise<number> {
+      const pending = await service.listRegistrations(EVENT_A_ID, {
+        status: RegistrationStatus.PENDING,
+      });
+      const id = pending.data[0].id;
+      dataset.teams.find((team) => team.id === id)!.status =
+        RegistrationStatus.OBSERVED;
+      return id;
+    }
+
+    it('el resumen los cuenta como pendientes, sin campos nuevos', async () => {
+      await observeOnePending();
+
+      const summary = await service.getSummary(EVENT_A_ID);
+
+      expect(summary.teams).toEqual(EXPECTED_SUMMARY_A.teams);
+      expect(Object.keys(summary.teams)).toEqual([
+        'total',
+        'pending',
+        'approved',
+        'rejected',
+        'cancelled',
+      ]);
+      expect(summary.byDiscipline).toEqual(EXPECTED_SUMMARY_A.byDiscipline);
+    });
+
+    it('la lista los informa como PENDING y entran al filtrar por pendientes', async () => {
+      const id = await observeOnePending();
+
+      const all = await service.listRegistrations(EVENT_A_ID, {});
+      expect(all.meta.total).toBe(11);
+      expect(all.data.find((item) => item.id === id)?.status).toBe('PENDING');
+      expect(JSON.stringify(all)).not.toContain('OBSERVED');
+
+      const pending = await service.listRegistrations(EVENT_A_ID, {
+        status: RegistrationStatus.PENDING,
+      });
+      expect(pending.data.map((item) => item.id)).toContain(id);
+      expect(pending.data.every((item) => item.status === 'PENDING')).toBe(
+        true,
+      );
+    });
+  });
+
   describe('aislamiento entre eventos', () => {
     it('con el evento A ninguna respuesta contiene datos del evento B', async () => {
       const responses = [

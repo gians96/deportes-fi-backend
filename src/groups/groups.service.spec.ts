@@ -522,6 +522,7 @@ describe('GroupsService (lecturas)', () => {
         slot: 1,
         status: 'PENDING',
         rejectionReason: null,
+        observation: null,
         voucherId: a.baseVoucher?.id,
       },
       {
@@ -530,6 +531,7 @@ describe('GroupsService (lecturas)', () => {
         slot: 2,
         status: 'PENDING',
         rejectionReason: null,
+        observation: null,
         voucherId: 500,
       },
     ]);
@@ -681,6 +683,15 @@ describe('GroupsService: borradores (spec 006)', () => {
     const [listed] = await service.findAll({ eventId: 1 }, treasurer);
     expect(listed.draftCount).toBe(0);
     expect(listed.disciplines.flatMap((d) => d.teams)).toHaveLength(1);
+  });
+
+  it('un equipo observado mantiene activo el grupo aunque su voucher esté rechazado (spec 007)', () => {
+    expect(
+      isActiveGroup({
+        baseVoucher: { status: VoucherStatus.REJECTED },
+        teams: [{ status: RegistrationStatus.OBSERVED }],
+      }),
+    ).toBe(true);
   });
 
   it('un grupo con voucher rechazado y solo borradores deja de ser activo', () => {

@@ -411,11 +411,11 @@ describe('Quitar un borrador', () => {
     expect(again).toMatchObject({ slot: 1, voucherId: BASE_VOUCHER });
   });
 
-  it('solo se quitan borradores', async () => {
+  it('el delegado solo quita borradores', async () => {
     const { service } = build();
     const created = await service.create(DELEGATE, dto());
-    await expect(service.remove(admin, created!.id)).rejects.toThrow(
-      /en borrador/,
+    await expect(service.remove(delegate, created!.id)).rejects.toThrow(
+      /ya fue enviado/,
     );
   });
 

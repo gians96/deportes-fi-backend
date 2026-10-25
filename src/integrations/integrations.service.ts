@@ -136,7 +136,10 @@ export class IntegrationsService {
     }
 
     const teamsByStatus: Record<
-      Exclude<RegistrationStatus, typeof RegistrationStatus.DRAFT>,
+      Exclude<
+        RegistrationStatus,
+        typeof RegistrationStatus.DRAFT | typeof RegistrationStatus.OBSERVED
+      >,
       number
     > = {
       PENDING: 0,
@@ -178,7 +181,12 @@ export class IntegrationsService {
     for (const team of teams) {
       // Los borradores se excluyen en la consulta; esto solo estrecha el tipo.
       if (team.status === RegistrationStatus.DRAFT) continue;
-      teamsByStatus[team.status] += 1;
+      // Un equipo observado espera la corrección del delegado: el Contrato 2 lo informa como pendiente.
+      const status =
+        team.status === RegistrationStatus.OBSERVED
+          ? RegistrationStatus.PENDING
+          : team.status;
+      teamsByStatus[status] += 1;
       participantsTotal += team._count.participants;
 
       const disciplineStats = byDiscipline.get(team.disciplineId);
@@ -190,9 +198,9 @@ export class IntegrationsService {
 
       disciplineStats.total += 1;
       typeStats.teams += 1;
-      if (team.status === RegistrationStatus.APPROVED) {
+      if (status === RegistrationStatus.APPROVED) {
         disciplineStats.approved += 1;
-      } else if (team.status === RegistrationStatus.PENDING) {
+      } else if (status === RegistrationStatus.PENDING) {
         disciplineStats.pending += 1;
       }
     }
@@ -369,7 +377,13 @@ export class IntegrationsService {
     const { page, pageSize, skip } = resolvePagination(query);
     const where: Prisma.TeamWhereInput = {
       discipline: { eventId },
-      status: query.status ?? { not: RegistrationStatus.DRAFT },
+      // OBSERVED se informa como PENDING: filtrar por pendientes también trae los observados.
+      status:
+        query.status === RegistrationStatus.PENDING
+          ? {
+              in: [RegistrationStatus.PENDING, RegistrationStatus.OBSERVED],
+            }
+          : (query.status ?? { not: RegistrationStatus.DRAFT }),
     };
 
     const [teams, total] = await this.prisma.$transaction([
@@ -394,7 +408,10 @@ export class IntegrationsService {
       data: teams.map((team) => ({
         id: team.id,
         name: team.name,
-        status: team.status,
+        status:
+          team.status === RegistrationStatus.OBSERVED
+            ? RegistrationStatus.PENDING
+            : team.status,
         disciplineName: team.discipline.name,
         participantType: team.discipline.participantType,
         participantsCount: team._count.participants,
